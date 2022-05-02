@@ -1,11 +1,12 @@
 /*  File: gaffer.c
  *  Author: Richard Durbin (rd109@cam.ac.uk)
  *  Copyright (C) Richard Durbin, Cambridge University, 2022
- *-------------------------------------------------------------------
+ *  License: MIT license (see file LICENSE)
+ggxf *-------------------------------------------------------------------
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May  2 12:59 2022 (rd109)
+ * Last edited: May  2 16:10 2022 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -269,10 +270,6 @@ Array *makeCut (Gfa *gf) // returns a list of int arrays of cutpoints per seq
 }
 
 
-
-
-
-
 Gfa *bluntify (Gfa *gf1)
 {
   Gfa *gf2 = new0 (1, Gfa) ;
@@ -281,6 +278,7 @@ Gfa *bluntify (Gfa *gf1)
   gf2->walk = arrayCreate (arrayMax(gf1->seq), Walk) ;
 
   Array *cut = makeCut (gf1) ;
+  Array aCut = arrayCreate (16, int) ; // used for sorting cut lists
   
   // the new segs in gf2 will be blunt-ended subsegments of gf1 segs - call them frags here
   // the old segs in gf1 will become paths in gf2
