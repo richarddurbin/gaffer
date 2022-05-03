@@ -2,11 +2,11 @@
  *  Author: Richard Durbin (rd109@cam.ac.uk)
  *  Copyright (C) Richard Durbin, Cambridge University, 2022
  *  License: MIT license (see file LICENSE)
-ggxf *-------------------------------------------------------------------
+ *-------------------------------------------------------------------
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May  2 16:10 2022 (rd109)
+ * Last edited: May  3 01:44 2022 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -134,7 +134,7 @@ void linkRemoveDuplicates (Gfa *gf)
       if (lu->s1 != l->s1 || lu->s2 != l->s2 || lu->overlap != l->overlap) *++lu = *l ;
     }
   int newMax = lu - arrp(gf->link, 0, Link) + 1 ;
-  printf ("removed %d duplicate links\n", arrayMax(gf->link) - newMax) ;
+  printf ("removed %d duplicate links, leaving %d\n", arrayMax(gf->link) - newMax, newMax) ;
   arrayMax (gf->link) = newMax ;
 }
 
@@ -208,238 +208,152 @@ static int linkOrderSize (const void *a, const void *b) // by overlap size small
 }
 
 typedef struct {
-  int end ;
-  int sLow ;
+  int x ;
+  int s ;	// index of lowest seq in which the frag ending at x is found
+  int sx ;      // position in s
 } Frag ;
 
-Array *makeCut (Gfa *gf) // returns a list of int arrays of cutpoints per seq
+static int fragOrder (const void *a, const void *b) // by x, else s
+{ Frag *fa = (Frag*)a, *fb = (Frag*)b ;
+  if (fa->x < fb->x) return -1 ; else if (fa->x > fb->x) return 1 ;
+  return (fa->s - fb->s) ;
+}
+
+Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
 {
-  int nSeq = arrayMax(gf->seq) ; // for convenience
+  int nSeq = arrayMax(gf1->seq) ; // for convenience
+  Frag *f, *f1, *f2, *fEnd ; // utility variables
+  int X = -1 ; // for debugging
+
   Array *cut = new(nSeq, Array) ; // this is what we will return
   int is ;
   for (is = 0 ; is < nSeq ; ++is) // initialise it
-    { cut[is] = arrayCreate (8, int) ;
-      array(cut[is], 0, int) = 0 ; // start with the two endpoints of each seq
-      array(cut[is], 1, int) = arrp(gf->seq, is, Seq)->len ;
+    { cut[is] = arrayCreate (8, Frag) ; // start with endpoint of each seq
+      f = arrayp(cut[is], 0, Frag) ; f->x = f->sx = 0 ; f->s = nSeq ;
+      f = arrayp(cut[is], 1, Frag) ; f->x = f->sx = arrp(gf1->seq, is, Seq)->len ; f->s = is ;
     }
 
   // next add the direct cutpoints from the links into cut[]
-  Link *l, *lEnd = arrp(gf->link, arrayMax(gf->link), Link) ;
-  for (l = arrp(gf->link, 0, Link) ; l < lEnd ; ++l)
-    { array(cut[l->s1], arrayMax(cut[l->s1]), int) = arrp(gf->seq,l->s1,Seq)->len - l->overlap ;
-      array(cut[l->s2], arrayMax(cut[l->s2]), int) = l->overlap ;
+  arraySort (gf1->link, linkOrder1) ;
+  Link *l, *lEnd = arrp(gf1->link, arrayMax(gf1->link), Link) ;
+  for (l = arrp(gf1->link, 0, Link) ; l < lEnd ; ++l)
+    { f1 = arrayp(cut[l->s1], arrayMax(cut[l->s1]), Frag) ;
+      f2 = arrayp(cut[l->s2], arrayMax(cut[l->s2]), Frag) ;
+      f1->x = arrp(gf1->seq,l->s1,Seq)->len - l->overlap ;
+      f2->x = l->overlap ;
+      if (l->s1 < l->s2) { f1->s = f2->s = l->s1 ; f1->sx = f2->sx = f1->x ; }
+      else { f1->s = f2->s = l->s2 ; f1->sx = f2->sx = f2->x ; }
     }
 
+  // now iterate until all cuts match across all links
   int nTouch = nSeq ;
   int *cutMax = new0(nSeq,int) ; // arrayMax(cut[i]) prior to updating
   while (nTouch)
     { bool *isTouched = new0(nSeq,bool) ;
       // first sort and compactify the cut lists
       for (is = 0 ; is < nSeq ; ++is)
-	{ arraySort(cut[is], intOrder) ;
-	  int *ip, *jp ; ip = jp = arrp(cut[is], 0, int) ;
-	  int *jEnd = arrp(cut[is], arrayMax(cut[is]), int) ;
-	  while (++jp < jEnd) if (*jp != *ip) *++ip = *jp ;
-	  arrayMax(cut[is]) = ++ip - arrp(cut[is], 0, int) ;
-	  if (cutMax[is] < arrayMax(cut[is]))
-	    { isTouched[is] = true ; cutMax[is] = arrayMax(cut[is]) ; }
+	{ arraySort(cut[is], fragOrder) ;
+	  if (cutMax[is] < arrayMax(cut[is])) isTouched[is] = true ;
+	  if (is == X) // debug section
+	    { printf ("cutMax[%d] = %d\n", X, cutMax[X]) ;
+	      for (f = arrp(cut[X],0,Frag) ; f < arrp(cut[X],arrayMax(cut[X]),Frag) ; ++f)
+		printf (" (%d,%d,%d)", f->x, f->s, f->sx) ;
+	      putchar ('\n') ;
+	    }
+	  f1 = f2 = arrp(cut[is], 0, Frag) ;
+	  fEnd = arrp(cut[is], arrayMax(cut[is]), Frag) ;
+	  while (++f2 < fEnd)
+	    if (f2->x != f1->x) { ++f1 ; f1->x = f2->x ; f1->s = f2->s ; f1->sx = f2->sx ; }
+	  cutMax[is] = arrayMax(cut[is]) = ++f1 - arrp(cut[is], 0, Frag) ;
 	}
-      // next check whether cut sites on both sides of the link are the same, if not add them
+      // next check whether cut sites on l->s1 and l->s2 match up: if not add them
       nTouch = 0 ;
-      for (l = arrp(gf->link, 0, Link) ; l < lEnd ; ++l)
+      for (l = arrp(gf1->link, 0, Link) ; l < lEnd ; ++l)
 	if (isTouched[l->s1] || isTouched[l->s2]) // no need to check if they didn't change
 	  { Array cut1 = cut[l->s1], cut2 = cut[l->s2] ;
-	    int off = arrp(gf->seq,l->s1,Seq)->len - l->overlap ;
+	    int off = arrp(gf1->seq,l->s1,Seq)->len - l->overlap ;
 	    int i1 = 0, i2 = 0 ;
-	    while (arr(cut1,i1,int) < off) ++i1 ; // off must be in cut1 - we added it above
+	    while (arrp(cut1,i1,Frag)->x < off) ++i1 ;
+	    assert (arrp(cut1,i1,Frag)->x == off) ; // off must be in cut1 - we added it above
 	    while (i1 < cutMax[l->s1]) // only up to end of previous list
-	      if (arr(cut1,i1,int) - off > arr(cut2,i2,int)) // add i2 into cut1
-		{ array(cut1, arrayMax(cut1), int) = arr(cut2,i2++,int) + off ; ++nTouch ; }
-	      else if (arr(cut1,i1,int) - off < arr(cut2,i2,int)) // add i1 into cut2
-		{ array(cut2, arrayMax(cut2), int) = arr(cut1,i1++,int) - off ; ++nTouch ; }
-	      else // they match
-		{ ++i1 ; ++ i2 ; }
+	      { f1 = arrp(cut1, i1, Frag) ; f2 = arrp(cut2, i2, Frag) ;
+		if (f1->x - off > f2->x) // add f2 into cut1
+		{ f1 = arrayp(cut1, arrayMax(cut1), Frag) ; ++nTouch ;
+		  f1->x = f2->x + off ; f1->s = f2->s ; f1->sx = f2->sx ;
+		  if (l->s1 < f2->s) // need to update ->s, ->sx for new f1 and f2
+		    { f1->s = l->s1 ; f1->sx = f1->x ;
+		      f2 = arrayp(cut2, arrayMax(cut2), Frag) ; ++nTouch ;
+		      f2->x = f1->x - off ; f2->s = f1->s ; f2->sx = f1->sx ;
+		    }
+		  ++i2 ;
+		}
+	      else if (f1->x - off < f2->x) // add f1 into cut2
+		{ f2 = arrayp(cut2, arrayMax(cut2), Frag) ; ++nTouch ;
+		  f2->x = f1->x - off ; f2->s = f1->s ; f2->sx = f1->sx ;
+		  if (l->s2 < f1->s) // need to update ->s, ->sx for new f2 and f1
+		    { f2->s = l->s2 ; f2->sx = f2->x ;
+		      f1 = arrayp(cut1, arrayMax(cut1), Frag) ; ++nTouch ;
+		      f1->x = f2->x + off ; f1->s = f2->s ; f1->sx = f2->sx ;
+		    }
+		  ++i1 ;
+		}
+	      else
+		{ if (f1->s < f2->s) // check if we need to update ->s for either f1 or f2
+		    { f2 = arrayp(cut2, arrayMax(cut2), Frag) ; ++nTouch ;
+		      f2->x = f1->x - off ; f2->s = f1->s ; f2->sx = f1->sx ;
+		    }
+		  else if (f1->s > f2->s)
+		    { f1 = arrayp(cut1, arrayMax(cut1), Frag) ; ++nTouch ;
+		      f1->x = f2->x + off ; f1->s = f2->s ; f1->sx = f2->sx ;
+		    }
+		  ++i1 ; ++i2 ;
+		}
+	      }
 	  }
-      // printf ("%d touches in makeCuts()\n", nTouch) ;
+      printf ("%d touches making the cuts in bluntify\n", nTouch) ;
       free (isTouched) ;
     }
-  
   free (cutMax) ;
-  
-  return cut ;
-}
 
-
-Gfa *bluntify (Gfa *gf1)
-{
+  // next create gfa2: seqs from the frags, and links and walks from the seqs
   Gfa *gf2 = new0 (1, Gfa) ;
   gf2->seq = arrayCreate (arrayMax(gf1->seq)+arrayMax(gf1->link), Seq) ;
-  gf2->link = arrayCreate (2*arrayMax(gf1->link), Link) ;
+  gf2->link = arrayCreate (8*arrayMax(gf1->link), Link) ;
   gf2->walk = arrayCreate (arrayMax(gf1->seq), Walk) ;
-
-  Array *cut = makeCut (gf1) ;
-  Array aCut = arrayCreate (16, int) ; // used for sorting cut lists
   
-  // the new segs in gf2 will be blunt-ended subsegments of gf1 segs - call them frags here
-  // the old segs in gf1 will become paths in gf2
-
-  // strategy is to represent each frag by its occurrence in the least s containing it
-  // use frags in the overlaps from s for s < si, 
-  // then partition the remaining sequence from this seg using overlaps for s > si
-  // NB this relies on the gf1->link being already sorted by linkOrder1
-  arraySort (gf1->link, linkOrder1) ;
-  Link *l1 = arrp(gf1->link, 0, Link), *l1end = arrp(gf1->link, arrayMax(gf1->link), Link) ;
-  Array link2 = arrayCopy (gf1->link) ;
-  arraySort (link2, linkOrder2) ;
-  Link *l2 = arrp(link2, 0, Link), *l2end = arrp(link2, arrayMax(link2), Link) ;
   Hash newSeqHash = hashCreate (2*arrayMax(gf1->link)) ;
-  int si ;
-  for (si = 0 ; si < arrayMax(gf1->seq) ; ++si)
-    { int siLen = arrp(gf1->seq, si, Seq)->len ;
-      int maxLeft = 0, minRight = siLen ; // on basis that sequences run from left to right
-      Link *lLeft = 0, *lRight = 0 ; // real ones can't be 0
-
-      while ((l1 < l1end && l1->s1 == si && l1->s2 < si) ||
-	     (l2 < l2end && l2->s2 == si && l2->s1 < si))
-	if (l2 == l2end || (l2->s2 != si) || (l1 < l1end && l1->s1 == si && l1->s2 < l2->s1))
-	  { int cut = siLen - l1->overlap ;
-	    if (cut < minRight)
-	      { minRight = (cut < maxLeft) ? maxLeft : cut ;
-		lRight = l1 ;
-	      }
-	    ++l1 ;
-	  }
-	else if (l1 == l1end || (l1->s1 != si) || (l2 < l2end && l2->s2 == si && l2->s1 < l1->s2))
-	  { int cut = l2->overlap ;
-	    if (cut > maxLeft)
-	      { maxLeft = (cut > minRight) ? minRight : cut ;
-		lLeft = l2 ;
-	      }
-	    ++l2 ;
-	  }
-	else
-	  { printf ("l1 = %ld (s1 = %d, ->s2 = %d), l2 = %ld (s1 = %d, ->s2 = %d)\n",
-		    l1-arrp(gf1->link,0,Link), l1->s1, l1->s2, l2-arrp(link2,0,Link), l2->s1, l2->s2) ;
-	    die ("logic error") ; // this shouldn't happen - just a programming check
-	  }
-        
-      // now sort the cutpoints for this seg between maxLeft and minRight ;
-      arrayMax(aCut) = 0 ; // clear aCut
-      array(aCut,0,int) = maxLeft ; array(aCut,1,int) = minRight ;
-      while (l1 < l1end && l1->s1 == si)
-	{ int cut = siLen - l1->overlap ; 
-	  if (cut > maxLeft && cut < minRight) array(aCut,arrayMax(aCut),int) = cut ;
-	  ++l1 ;
-	}
-      while (l2 < l2end && l2->s2 == si)
-	{ int cut = l2->overlap ; 
-	  if (cut > maxLeft && cut < minRight) array(aCut,arrayMax(aCut),int) = cut ;
-	  ++l2 ;
-	}
-      if (arrayMax(aCut) > 2) arraySort (aCut, intOrder) ; // sort if anything added
-
-      // some debugging printing
-      if (si == 484 || si == 3374 || si == 1368)
-	{ printf ("si = %d, siLen = %d", si, siLen) ;
-	  if (lLeft)
-	    printf (", lLeft %ld = (%d, %d, %d), maxLeft = %d", 
-		    lLeft-arrp(link2,0,Link), lLeft->s1, lLeft->s2, lLeft->overlap, maxLeft) ;
-	  if (arrayMax(aCut) > 2)
-	    { int i ; printf (", aCut =") ;
-	      for (i = 1 ; i < arrayMax(aCut) - 1 ; ++i) printf (", %d", arr(aCut,i,int)) ;
-	    }
-	  if (lRight)
-	    printf (", minRight = %d, lRight %ld = (%d, %d, %d)",
-		    minRight, lRight-arrp(gf1->link,0,Link),lRight->s1,lRight->s2,lRight->overlap) ;
-	  printf ("\n") ;
-	}
-      
-      // now assemble the walk in gf2 corresponding to si
-      Walk *wi = arrayp(gf2->walk, si, Walk) ;
-      wi->len = siLen ;
+  for (is = 0 ; is < nSeq ; ++is)
+    { int i ;
+      int s1 = -1, s2 ;
+      int index, lastIndex = -1 ;
+      Walk *wi = arrayp(gf2->walk, is, Walk) ;
+      wi->len = arrp(gf1->seq,is,Seq)->len ;
       wi->start = 0 ;
       wi->as = arrayCreate (8, int) ;
-      int i, len = 0 ;
-      int lastSeq = -1 ; // used to create new links
-      if (lLeft) // add frags from lLeft->s1
-	{ Walk *w = arrp(gf2->walk, lLeft->s1, Walk) ;
-	  if (!arrayMax(w->as)) die ("need some frags in lLeft") ;
-	  if (si == 3374)
-	    { printf ("\n** adding left frags - |w->as| = %d\n", arrayMax(w->as)) ;
-	      printf ("**** goal start is %d - %d = %d\n", w->len, maxLeft, w->len - maxLeft) ;
-	      printf ("**** len = %d\n", len) ;
+      for (i = 1 ; i < arrayMax(cut[is]) ; ++i)
+	{ f1 = arrp(cut[is],i-1,Frag) ; f2 = arrp(cut[is],i,Frag) ;
+	  if (!hashFind (newSeqHash, HASH_INT2(f2->s,f2->sx), &index))
+	    { Seq *sfs = arrp(gf1->seq,f2->s,Seq) ;
+	      hashAdd (newSeqHash, HASH_INT2(f2->s,f2->sx), &index) ;
+	      hashAdd (newSeqHash, HASH_INT2(RC(f2->s),sfs->len - f2->sx), 0) ; // add RC seq
+	      Seq *sNew = arrayp(gf2->seq,index,Seq) ;
+	      sNew->len = f2->x - f1->x ;
+	      sNew->s = &(sfs->s[f2->sx - sNew->len]) ;
 	    }
-	  for (i = 0 ; i < arrayMax(w->as) ; ++i)
-	    { Seq *as = arrp(gf2->seq, arr(w->as,i,int), Seq) ;
-	      len += as->len ;
-	      if (si == 3374)
-		printf ("**** frag %d = %d (len %d), len now = %d\n", i, arr(w->as,i,int), as->len, len) ;
-	      if (len > w->len - maxLeft) die ("problem with left walk %d, len %d too big", si, len) ;
-	      if (len == w->len - maxLeft)
-		{ while (++i < arrayMax(w->as))
-		    { array(wi->as, arrayMax(wi->as), int) = arr(w->as, i, int) ;
-		      if (si == 3374)
-			printf ("**** adding frag %d\n", arr(w->as, i, int)) ;
-		    }
-		  break ;
-		}
+	  if (lastIndex >= 0)
+	    { Link *lNew = arrayp(gf2->link, arrayMax(gf2->link), Link) ;
+	      lNew->s1 = lastIndex ; lNew->s2 = index ; lNew->overlap = 0 ;
 	    }
-	  lastSeq = arr(wi->as, arrayMax(wi->as)-1, int) ;
+	  lastIndex = index ;
 	}
-      
-      if (maxLeft < minRight) // add frags from this seq, cutting at cutPoints in aCut
-	{ char *siSeq = arrp(gf1->seq, si, Seq)->s ;
-	  for (i = 1 ; i < arrayMax (aCut) ; ++i)
-	    { // first get or make the sequence for the new frag
-	      int index ;
-	      int start = arr(aCut,i-1,int), end = arr(aCut,i,int) ;
-	      if (!hashFind (newSeqHash, HASH_INT2(si,start), &index))
-		{ hashAdd (newSeqHash, HASH_INT2(si,start), &index) ;
-		  hashAdd (newSeqHash, HASH_INT2(RC(si),siLen-end), 0) ; // add the revcomp seq
-		} // NB code around here relies on index increasing sequentially from 0 - it does
-	      Seq *s = arrayp(gf2->seq,index,Seq) ;
-	      s->s = &siSeq[start] ; s->len = end - start ;
-	      if (index >1600 && index < 1610) 
-		printf ("* creating frag %d from si %d: len %d = end %d - start %d\n",
-			index, si, s->len, end, start) ;
-	      array(wi->as, arrayMax(wi->as), int) = index ;
-	      // next make the link to the last frag if it existed
-	      if (lastSeq)
-		{ Link *l = arrayp(gf2->link, arrayMax(gf2->link), Link) ;
-		  l->s1 = lastSeq ; l->s2 = index ; l->overlap = 0 ;
-		}
-	      lastSeq = index ;
-	    }
-	  if (i == 3374)
-	    printf (", after middle %d frags", arrayMax(wi->as)) ;
-	}
-      
-      if (lRight) // add frags from lRight->s2
-	{ Walk *w = arrp(gf2->walk, lRight->s2, Walk) ;
-	  if (!arrayMax(w->as)) die ("need some frags in lRight") ;
-	  // first make the link to the last frag if it existed
-	  if (lastSeq)
-	    { Link *l = arrayp(gf2->link, arrayMax(gf2->link), Link) ;
-	      l->s1 = lastSeq ; l->s2 = arr(w->as,0,int) ; l->overlap = 0 ;
-	    }
-	  // now copy in the frags from lRight
-	  len = 0 ;
-	  if (si == 3374)
-	    { printf ("** adding right frags - |w->as| = %d\n", arrayMax(w->as)) ;
-	      printf ("**** goal end is %d - %d = %d\n", siLen, minRight, siLen - minRight) ;
-	    }
-	  for (i = 0 ; i < arrayMax(w->as) ; ++i)
-	    { array(wi->as, arrayMax(wi->as), int) = lastSeq = arr(w->as, i, int) ;
-	      len += arrp(gf2->seq, arr(w->as,i,int), Seq)->len ;
-	      if (si == 3374)
-		printf ("**** adding frag %d, len now = %d\n", arr(w->as, i, int), len) ;
-	      if (len > siLen - minRight)
-		die ("problem with right walk %d, len %d > target %d", si, len, siLen-minRight) ;
-	      if (len == siLen - minRight) break ;
-	    }
-	}
-      wi->end = arrp(gf2->seq, lastSeq, Seq)->len ;
     }
+
+  // finally sort and compress the links
+  arraySort (gf2->link, linkOrder1) ;
+  arrayCompress (gf2->link) ;
+
+  printf ("made blunt gfa with %d seqs, %d links and %d walks\n",
+	  arrayMax(gf2->seq), arrayMax(gf2->link), arrayMax(gf2->walk)) ;
 
   return gf2 ;
 }
