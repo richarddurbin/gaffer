@@ -5,7 +5,7 @@
  * Description: includes standard system headers and own headers
  * Exported functions:
  * HISTORY:
- * Last edited: Jun 20 13:03 2020 (rd109)
+ * Last edited: Jul 18 10:53 2022 (rd109)
  * Created: Wed Jan  5 16:13:48 2011 (rd)
  *-------------------------------------------------------------------
  */
@@ -59,6 +59,7 @@ char *getCommandLine (void) ;
 char *fgetword (FILE *f) ;	/* not threadsafe */
 FILE *fzopen (const char* path, const char* mode) ; /* will open gzip files silently */
 FILE *fopenTag (char* root, char* tag, char* mode) ;
+char *fnameTag (char* root, char* tag) ; /* utility to return name as used by fopenTag() */
 
 void timeUpdate (FILE *f) ;	/* print time usage since last call to file */
 void timeTotal (FILE *f) ;	/* print full time usage since first call to timeUpdate */

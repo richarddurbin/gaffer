@@ -5,7 +5,7 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: Jun 20 13:06 2020 (rd109)
+ * Last edited: Jul 18 10:59 2022 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
@@ -38,8 +38,6 @@ void warn (char *format, ...)
   vfprintf (stderr, format, args) ;
   fprintf (stderr, "\n") ;
   va_end (args) ;
-
-  exit (-1) ;
 }
 
 static char* commandLine = 0 ;
@@ -126,13 +124,18 @@ FILE *fzopen(const char *path, const char *mode)
 #endif
 }
 
-FILE *fopenTag (char* root, char* tag, char* mode)
+char* fnameTag (char* root, char* tag)
 {
-  if (strlen (tag) > 30) die ("tag %s in fopenTag too long - should be < 30 chars", tag) ;
-  char *fileName = new (strlen (root) + 32, char) ;
+  char *fileName = new (strlen (root) + strlen (tag) + 2, char) ;
   strcpy (fileName, root) ;
   strcat (fileName, ".") ;
   strcat (fileName, tag) ;
+  return fileName ;
+}
+
+FILE *fopenTag (char* root, char* tag, char* mode)
+{
+  char *fileName = fnameTag (root, tag) ;
   FILE *f = fzopen (fileName, mode) ;
   free (fileName) ;
   return f ;
