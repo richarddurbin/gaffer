@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Mar 24 00:46 2022 (rd109)
+ * Last edited: Jul 26 15:45 2022 (rd109)
  * Created: Sun Nov 11 17:21:40 2018 (rd109)
  *-------------------------------------------------------------------
  */
@@ -109,7 +109,7 @@ int main (int argc, char *argv[])
 	  for (i = 0 ; i < arrayMax(lengthCount) ; ++i)
 	    { s += arr(lengthCount, i, int) ;
 	      if (s && !((arrayMax(lengthCount)-1-i) % d))
-		{ printf ("  %d\t%d\n", (i*i)/100, s) ;
+		{ printf ("  %lld\t%d\n", (i*(U64)i)/100, s) ;
 		  s = 0 ;
 		}
 	    }
