@@ -5,7 +5,7 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: Apr 12 15:32 2022 (rd109)
+ * Last edited: Aug 17 01:08 2022 (rd109)
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
  */
@@ -33,7 +33,7 @@ SeqIO *seqIOopenRead (char *filename, int* convert, bool isQual)
   if (!strcmp (filename, "-")) si->gzf = gzdopen (fileno (stdin), "r") ;
   else si->gzf = gzopen (filename, "r") ;
   if (!si->gzf) { free(si) ; return 0 ; }
-  si->bufSize = 1<<24 ;
+  si->bufSize = 1<<24 ; // 16 MB
   si->b = si->buf = new (si->bufSize, char) ;
   si->convert = convert ;
   si->isQual = isQual ;
@@ -363,10 +363,11 @@ static char *schemaText =
   "S 3 10x   10X Genomics data\n"
   "S 3 ctg   contigs from an assembly\n"
   "S 3 kmr   kmers\n"
-  "O S 1 3 DNA           sequence: the DNA string\n"
-  "D I 1 6 STRING        id: (optional) sequence identifier\n"
-  "D Q 1 6 STRING        quality: Q values (ascii string = q+33)\n"
-  "G g 2 3 INT 6 STRING  group: count, name (e.g. use for flow cell/lane grouping)\n" ;
+  "O S 1 3 DNA             sequence: the DNA string\n"
+  "D I 1 6 STRING          id: (optional) sequence identifier\n"
+  "D Q 1 6 STRING          quality: Q values (ascii string = q+33)\n"
+  "D H 2 3 INT 8 INT_LIST  hoco: uncompressed seqlen, then run length for each base\n"
+  "G g 2 3 INT 6 STRING    group: count, name (e.g. use for flow cell/lane grouping)\n" ;
 #endif
 
 SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThresh)
