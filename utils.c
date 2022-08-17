@@ -5,7 +5,7 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: Jul 18 10:59 2022 (rd109)
+ * Last edited: Aug 17 12:22 2022 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
@@ -82,12 +82,14 @@ char *fgetword (FILE *f)
   cp = buf ;
   while (!feof (f) && (*cp = getc (f)))
     if (isgraph(*cp) && !isspace(*cp))
-      { ++cp ; ++n ;
-	if (n >= bufSize)
+      { if (++n >= bufSize)
 	  { bufSize *= 2 ;
 	    if (!(buf = (char*) realloc (buf, bufSize)))
 	      die ("fgetword realloc failure requesting %d bytes", bufSize) ;
+	    cp = &buf[n] ;
 	  }
+	else
+	  ++cp ;
       }
     else
       { while ((*cp = getc (f)) && (isspace(*cp) || !isgraph(*cp)) && *cp != '\n' && !feof(f)) ;
