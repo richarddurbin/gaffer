@@ -144,12 +144,39 @@ O 7852
 + S 2979016643    // total lengths of all lists in S lines
 .
 
-> composition -t daStaPalu1-r.1sgs
+> ./composition -b -l -t daStaPalu1-r.1sgs 
 onecode file, 24178 sequences >= 0, 2979016643 total, 123211.87 average, 1884 min, 6381111 max
-user    2.566312        system  0.088715        max_RSS 38862848        memory  29542744
+bases
+  a 948668488 31.8 %
+  c 540474258 18.1 %
+  g 540752467 18.2 %
+  t 949121430 31.9 %
+approximate N50 932093
+length distribution (quadratic bins)        // quadratic bins naturally scale for Poisson counts
+  15951         4878
+  63806         15381
+  143565        834
+  255227        576
+  398792        553
+  574260        481
+  781632        365
+  1020908       330
+  1292086       271
+  1595169       148
+  1930154       140
+  2297043       86
+  2695835       46
+  3126531       40
+  3589130       16
+  4083632       13
+  4610038       9
+  5168347       4
+  5758560       5
+  6380676       2
+user    9.034954        system  0.165228        max_RSS 39763968        memory  30384856
 
 > composition -t daStaPalu1-r.fa.gz
 fasta file, 24178 sequences >= 0, 2979016643 total, 123211.87 average, 1884 min, 6381111 max
-user    19.503632       system  0.221412        max_RSS 16875520        memory  16780520      // note that this is much slower
+user    19.503632       system  0.221412        max_RSS 16875520        memory  16780520      // note that this twice as slow when doing less
 ```
-Note that not only are the 1seq files smaller than compressed fasta, they also read much faster because parsing is trivial (composition reads in each sequence, even though the basic counts are available in the 1seq header.  composition can all give other information such as base composition (-b), approximate length distribution (-l), quality score distributions (-q) if they are present.
+Note that not only are the 1seq files smaller than compressed fasta, they also read much faster because parsing is trivial (composition reads in each sequence, even though the basic counts are available in the 1seq header.
