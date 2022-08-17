@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Apr 11 13:38 2022 (rd109)
+ * Last edited: Aug 16 22:54 2022 (rd109)
  * Created: Sat Nov 10 08:51:49 2018 (rd109)
  *-------------------------------------------------------------------
  */
@@ -39,7 +39,7 @@ typedef struct {
   char unpackConvert[4] ;	/* for unpacking */
   U32 seqExpand[256] ;		/* lookup for unpacking sequence */
   U64 qualExpand[256] ;		/* lookup for unpacking qual */
-  void *handle;			/* used for VGP, BAM */
+  void *handle;			/* used for ONEseq, BAM */
 } SeqIO ;
 
 /* Reads/writes FASTA or FASTQ, gzipped or not, ONEseq, SAM/BAM/CRAM and a custom packed binary */
