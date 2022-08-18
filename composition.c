@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Jul 26 15:45 2022 (rd109)
+ * Last edited: Aug 18 23:24 2022 (rd109)
  * Created: Sun Nov 11 17:21:40 2018 (rd109)
  *-------------------------------------------------------------------
  */
@@ -75,14 +75,14 @@ int main (int argc, char *argv[])
   printf ("%s file, %llu sequences >= 0, %llu total, %.2f average, %llu min, %llu max\n",
 	  seqIOtypeName[si->type], si->nSeq, totLen, totLen / (double) si->nSeq, lenMin, lenMax) ;
   if (totBase)
-    { U64 totUnprint = 0 ;
-      printf ("bases\n") ;
+    { printf ("bases\n") ;
       for (i = 0 ; i < 256 ; ++i)
 	if (totBase[i])
-	  { if (isprint(i)) printf ("  %c %llu %4.1f %%\n", i, totBase[i], totBase[i]*100.0/totLen) ;
-	    else totUnprint += totBase[i] ;
+	  { if (isprint(i))
+	      printf ("  %c %llu %4.1f %%\n", i, totBase[i], totBase[i]*100.0/totLen) ;
+	    else
+	      printf ("  unprint-%d %llu %4.1f %%\n", i, totBase[i], totBase[i]*100.0/totLen) ;
 	  }
-      if (totUnprint) printf (" unprintable %llu %4.1f %%\n", totUnprint, totUnprint*100.0/totLen) ;
       free (totBase) ;
     }
 
