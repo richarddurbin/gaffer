@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University, 2019
  *
  * HISTORY:
- * Last edited: Mar 27 22:11 2022 (rd109)
+ * Last edited: Aug 18 17:34 2022 (rd109)
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
  *
@@ -254,6 +254,8 @@ char oneReadLine (OneFile *vf);
 #define oneChar(vf,x)       ((vf)->field[x].c)
 #define _LF(vf)             ((vf)->info[(int)(vf)->lineType]->listField)
 #define oneLen(vf)          ((vf)->field[_LF(vf)].len & 0xffffffffffffffll)
+#define oneDNAchar(vf)      (char *) ((vf)->info[(int) (vf)->lineType]->buffer)
+#define oneDNA2bit(vf)      (U8 *) ((vf)->codecBuf)
 #define oneString(vf)       (char *) ((vf)->info[(int) (vf)->lineType]->buffer)
 #define oneIntList(vf)      (I64 *) ((vf)->info[(int) (vf)->lineType]->buffer)
 #define oneRealList(vf)     (double *) ((vf)->info[(int) (vf)->lineType]->buffer)
