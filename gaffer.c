@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Aug 17 13:25 2022 (rd109)
+ * Last edited: Aug 22 23:38 2022 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -38,8 +38,8 @@ typedef struct {
   Array link ;                  // of Link
   Array walk ;                  // of Array of Walk
   bool isPerfect ;              // all links match exactly
-  bool isOwnSeq ;               // does this object own its sequences (used in destroy)
   bool hasDNA ;                 // true if the dna fields of seq[i] are filled
+  bool isOwnDNA ;               // does this object own its DNA sequences (used in destroy)
 } Gfa ;
 
 // have every sequence forwards and reverse complemented adjacent in gf->seq
@@ -59,7 +59,8 @@ Gfa *gfaCreate (int nSeq, int nLink)
 void gfaDestroy (Gfa *gf)
 { int i ;
   dictDestroy (gf->seqName) ;
-  if (gf->hasDNA) for (i = arrayMax(gf->seq) ; i-- ;) free (arrp(gf->seq,i,Seq)->dna) ;
+  if (gf->hasDNA && gf->isOwnDNA)
+    for (i = arrayMax(gf->seq) ; i-- ;) free (arrp(gf->seq,i,Seq)->dna) ;
   arrayDestroy (gf->seq) ;
   arrayDestroy (gf->link) ;
   if (gf->walk)
@@ -115,9 +116,9 @@ Gfa *readOneFiles (char *stem)
   while (oneReadLine (vfl))
     if (vfl->lineType == 'L')
       { l = arrayp(gf->link, arrayMax(gf->link), Link) ;
-	l->s1 = 2 * oneInt(vfl,0) ;
+	l->s1 = 2 * (oneInt(vfl,0) - 1) ;
 	if (oneChar(vfl,1) == '<') ++l->s1 ;
-	l->s2 = 2 * oneInt(vfl,2) ;
+	l->s2 = 2 * (oneInt(vfl,2) - 1) ;
 	if (oneChar(vfl,3) == '<') ++l->s2 ;
       }
     else if (vfl->lineType == 'O')
@@ -140,6 +141,7 @@ Gfa *readOneFiles (char *stem)
       printf ("read file %s with %d sequences\n", fileName, (int)vfq->object) ;
       oneFileClose (vfq) ;
       gf->hasDNA = true ;
+      gf->isOwnDNA = true ;
     }
 
   strcpy (fileName+stemLen, ".1wlk") ;
@@ -158,7 +160,7 @@ Gfa *readOneFiles (char *stem)
 	    int i, n = oneLen(vfw) ;
 	    I64 *i64 = oneIntList(vfw) ;
 	    w->as = arrayCreate (n,int) ;
-	    for (i = 0 ; i < n ; ++i) arr(w->as,i,int) = 2 * i64[i] ;
+	    for (i = 0 ; i < n ; ++i) arr(w->as,i,int) = 2 * (i64[i] - 1) ;
 	    arrayMax(w->as) = n ;
 	    break ;
 	  case 'D':
@@ -219,9 +221,9 @@ void writeOneFiles (Gfa *gf, char *stem)
   oneWriteHeader (vfl) ;
   for (i = 0 ; i < arrayMax(gf->link) ; ++i)
     { Link *l = arrp(gf->link, i, Link) ;
-      oneInt(vfl,0) = l->s1 >> 1 ;
+      oneInt(vfl,0) = 1 + (l->s1 >> 1) ;
       oneChar(vfl,1) = (l->s1 & 1) ? '<' : '>' ;
-      oneInt(vfl,2) = l->s2 >> 1 ;
+      oneInt(vfl,2) = 1 + (l->s2 >> 1) ;
       oneChar(vfl,3) = (l->s2 & 1) ? '<' : '>' ;
       oneWriteLine (vfl, 'L', 0, 0) ;
       if (l->overlap) { oneInt(vfl,0) = l->overlap ; oneWriteLine (vfl, 'O', 0, 0) ; }
@@ -242,14 +244,11 @@ void writeOneFiles (Gfa *gf, char *stem)
 	  int j, n = arrayMax(w->as) ;
 	  array(aI64,n-1,I64) = 0 ; // ensure space so can use arr inside loop
 	  array(aDir,n-1,char) = 0 ; // ensure space so can use arr inside loop
-	  if (i < 10) fprintf (stderr, "walk %d length %d -", i, n) ;
 	  int *asj = arrp(w->as, 0, int) ;
 	  for (j = 0 ; j < n ; ++j, ++asj)
-	    { arr(aI64,j,I64) = *asj >> 1 ; // can use arr() not array() since space confirmed
+	    { arr(aI64,j,I64) = 1 + (*asj >> 1) ; // can use arr() since space confirmed
 	      arr(aDir,j,char) = (*asj & 0x1) ? '<' : '>' ;
-	      if (i < 10) fprintf (stderr, " %d", *asj) ;
 	    }
-	  if (i < 10) fprintf (stderr, "\n") ;
 	  arrayMax(aI64) = n ; arrayMax(aDir) = n ; // must set by hand because not set by arr
 	  oneInt(vfw,0) = w->len ; oneWriteLine (vfw, 'W', n, arrp(aI64,0,I64)) ;
 	  oneWriteLine (vfw, 'D', n, arrp(aDir,0,char)) ;
@@ -293,6 +292,7 @@ Gfa *gfaParseSL (char *filename)
 	      seq->dna = new (seq->len, char) ;
 	      memcpy (seq->dna, word, seq->len) ;
 	      gf->hasDNA = true ; // assume every seq will have DNA...
+	      gf->isOwnDNA = true ;
 	    }
 	  word = fgetword (f) ; // length
 	  if (strncmp (word, "LN:i:", 5)) die ("bad LN field line %d", line) ;
@@ -394,6 +394,7 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
 	  si->nSeq, total, seqIOtypeName[si->type], filename) ;
   seqIOclose (si) ;
   gf->hasDNA = true ;
+  gf->isOwnDNA = true ;
 }
 
 static void linkReport (Array a, int i, int n) // previously used for debugging
@@ -460,7 +461,7 @@ static int cutOrder (const void *a, const void *b) // by x, else isLeft, else s
   return (ca->s - cb->s) ;
 }
 
-static int X = 1 ; /* debugging */
+static int X = -1 ; /* debugging */
 
 void newCut (Array *cut, int i, int x, int s, int sx, bool isLeft)
 {
@@ -582,6 +583,8 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
   // next create gf2: seqs from the segments between cuts, and links and walks from the seqs
   Gfa *gf2 = gfaCreate (arrayMax(gf1->seq)+arrayMax(gf1->link), 8*arrayMax(gf1->link)) ;
   gf2->walk = arrayCreate (arrayMax(gf1->seq), Walk) ;
+  gf2->hasDNA = true ;
+  gf2->isOwnDNA = false ;
   
   Hash newSeqHash = hashCreate (2*arrayMax(gf1->link)) ;
   for (is = 0 ; is < nSeq ; ++is)
@@ -595,7 +598,7 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
 	    printf (" (%d,%d,%d)%c", c->x, c->s, c->sx, c->isLeft?'L':'R') ;
 	  putchar ('\n') ;
 	}
-      int i, index, lastIndex = -1 ;
+      int i, index, indexRC, lastIndex = -1 ;
       for (i = 0 ; i < arrayMax(cut[is]) ; i += 2)
 	{ c1 = arrp(cut[is],i,Cut) ;
 	  c2 = arrp(cut[is],i+1,Cut) ;
@@ -604,7 +607,11 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
 	  Seq *sfs = arrp(gf1->seq,c1->s,Seq) ;
 	  if (!hashFind (newSeqHash, HASH_INT2(c1->s,c1->sx), &index))
 	    { hashAdd (newSeqHash, HASH_INT2(c1->s,c1->sx), &index) ;
-	      hashAdd (newSeqHash, HASH_INT2(RC(c1->s),sfs->len - c1->sx), 0) ; // add RC seq
+	      hashAdd (newSeqHash, HASH_INT2(RC(c1->s),sfs->len - c2->sx), &indexRC) ;
+	      if (is == X || is == RC(X))
+		printf ("adding seq2 %d from %d-%d in %d and RC %d from %d to %d in %d\n",
+			index, c1->x, c2->x, c1->s,
+			indexRC, sfs->len - c2->sx, sfs->len - c1->x, RC(c1->s)) ;
 	    }
 	  Seq *sNew = arrayp(gf2->seq,index,Seq) ;
 	  if (sNew->len)
@@ -637,9 +644,14 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
       if (!s) continue ;
       Walk *w = arrp(gf2->walk, is, Walk) ;
       int i, j, n = 0 ;
+      if (is == X || is == RC(X)) // debug section
+	printf ("is %d walk %d segs %d start %d end %d len\n",
+		is, arrayMax(w->as), w->start, w->end, w->len) ;
       for (i = 0 ; i < arrayMax(w->as) ; ++i)
 	{ Seq *fs = arrp(gf2->seq, arr(w->as,i,int), Seq) ;
 	  char *t = fs->dna ;
+	  if (is == X || is == RC(X)) // debug section
+	    printf ("  seg %d len %d\n", arr(w->as,i,int), fs->len) ;
 	  //	  printf ("seq %d pos %d starting cut %d len %d\n", is, n, i, fs->len) ;
 	  for (j = 0 ; j < fs->len ; ++j, ++n)
 	    if (*s++ != *t++)
