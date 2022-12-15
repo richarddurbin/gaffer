@@ -5,7 +5,8 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: Aug 17 01:08 2022 (rd109)
+ * Last edited: Dec 15 10:33 2022 (rd109)
+ * * Dec 15 09:45 2022 (rd109): separated out 2bit packing/unpacking into SeqPack
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
  */
@@ -84,17 +85,7 @@ SeqIO *seqIOopenRead (char *filename, int* convert, bool isQual)
       si->maxDescLen = *(U64*)si->b ; si->b += 8 ;
       si->maxSeqLen = *(U64*)si->b ; si->b += 8 ;
       si->nb -= 64 ;
-      si->unpackConvert[0] = si->convert['A'] ; 
-      si->unpackConvert[1] = si->convert['C'] ; 
-      si->unpackConvert[2] = si->convert['G'] ; 
-      si->unpackConvert[3] = si->convert['T'] ; 
-      { int i = 256 ; U8 u ;
-	for (u = 0 ; i-- ; u++)
-	  { sqioSeqUnpack (&u, (char*)&si->seqExpand[u], 4, si) ;
-	    if (si->isQual)
-	      sqioQualUnpack (&u, (char*)&si->qualExpand[u], 8, si) ;
-	  }
-      }
+      si->seqPack = seqPackCreate (0, si->convert['A'], si->qualThresh) ;
       si->seqBuf = new0 (si->maxSeqLen+1, char) ;
       if (si->isQual) si->qualBuf = new0 (si->maxSeqLen+1, char) ;
       { U64 maxBufSize = 3*sizeof(int) + 5 + si->maxIdLen + si->maxDescLen + si->maxSeqLen / 4 ;
@@ -284,16 +275,16 @@ bool seqIOread (SeqIO *si)
       si->seqLen = *((int*)si->b) ; si->b += sizeof(int) ;
       si->nb -= 3*sizeof(int) ;
       U64 nBytes = si->idLen + 1 + si->descLen + 1 + (si->seqLen+3)/4 ;
-      if (si->qualThresh) nBytes += (si->seqLen+7)/8 ; /* NB qualThresh not isQual */
+      if (si->qualThresh) nBytes += (si->seqLen+7)/8 ; /* NB qualThresh (from file) not isQual */
       nBytes = 4*((nBytes+3)/4) ;
       bufConfirmNbytes (si, nBytes) ;
       si->idStart = si->b - si->buf ;
       si->descStart = si->idStart + si->idLen + 1 ;
       si->seqStart = si->descStart + si->descLen + 1 ;
-      sqioSeqUnpack ((U8*)(si->buf+si->seqStart), si->seqBuf, si->seqLen, si) ;
+      seqUnpackSeq (si->seqPack, (U8*)(si->buf+si->seqStart), si->seqBuf, si->seqLen) ;
       if (si->isQual)
 	{ si->qualStart = si->seqStart + (si->seqLen + 3) / 4 ;
-	  sqioQualUnpack ((U8*)(si->buf+si->qualStart), si->qualBuf, si->seqLen, si) ;
+	  seqUnpackQual (si->seqPack, (U8*)(si->buf+si->qualStart), si->qualBuf, si->seqLen) ;
 	}
       ++si->line ;
       si->b += nBytes ; si->nb -= nBytes ;
@@ -398,8 +389,7 @@ SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThr
       si->handle = vf ;
       char *commandLine = getCommandLine() ;
       if (!commandLine) commandLine = "-" ;
-      oneAddProvenance (vf, "seqio", "1.0", commandLine, 0) ;
-      oneWriteHeader (vf) ;
+      oneAddProvenance (vf, "seqio", "1.0", commandLine) ;
       return si ;
     }
 #else
@@ -499,7 +489,7 @@ void seqIOwrite (SeqIO *si, char *id, char *desc, U64 seqLen, char *seq, char *q
 	oneWriteLine (vf, 'S', seqLen, seq) ;
       if (id)
 	{ oneWriteLine (vf, 'I', strlen (id), id) ;
-	  if (desc) oneWriteComment (vf, desc) ;
+	  if (desc) oneWriteComment (vf, "%s", desc) ;
 	}
       if (qual && si->isQual)
 	{ int i ;
@@ -552,8 +542,8 @@ void seqIOwrite (SeqIO *si, char *id, char *desc, U64 seqLen, char *seq, char *q
       *ib++ = si->idLen ; *ib++ = si->descLen ; *ib++ = seqLen ;
       if (si->idLen) { strcpy (si->b, id) ; si->b += si->idLen ; } *si->b++ = 0 ;
       if (si->descLen) { strcpy (si->b, desc) ; si->b += si->descLen ; } *si->b++ = 0 ;
-      si->b += sqioSeqPack (seq, (U8*)si->b, si->seqLen, si->convert) ;
-      if (si->isQual) si->b += sqioQualPack (qual, (U8*)si->b, si->seqLen, si->qualThresh) ;
+      si->b += seqPackSeq (si->seqPack, seq, (U8*)si->b, si->seqLen) ;
+      if (si->isQual) si->b += seqPackQual (si->seqPack, qual, (U8*)si->b, si->seqLen) ;
       si->b += pad ;
     }
   si->nb -= len ;
@@ -561,65 +551,128 @@ void seqIOwrite (SeqIO *si, char *id, char *desc, U64 seqLen, char *seq, char *q
 
 /********** some routines to pack sequence and qualities for binary representation ***********/
 
-U64 sqioSeqPack (char *s, U8 *u, U64 len, int *convert) /* compress s into (len+3)/4 u */
+SeqPack *seqPackCreate (int *convert, char unpackA, int qualThresh)
+{
+  SeqPack *sp = new (1, SeqPack) ;
+  if (qualThresh < 0 || qualThresh >= 128)
+    die ("seqPackCreate: qualThresh %d is out of range 0..127", qualThresh) ;
+  sp->qualThresh = qualThresh ;
+  if (convert) sp->convert = convert ; else sp->convert = dna2index4Conv ;
+  switch (unpackA)
+    {
+    case '0': sp->unconv[0] = 0; sp->unconv[1] = 1; sp->unconv[2] = 2; sp->unconv[3] = 3; break ;
+    case '1': sp->unconv[0] = 1; sp->unconv[1] = 2; sp->unconv[2] = 4; sp->unconv[3] = 8; break ;
+    case 'a': strcpy (sp->unconv, "acgt") ; break ;
+    case 'A': strcpy (sp->unconv, "ACGT") ; break ;
+    default: 
+      die ("seqPackCreate: unrecognised unpackA character %d = %c - must be one of a, A, 0, 1",
+	   unpackA, unpackA) ;
+    }
+  { int i, j ;
+    for (i = 0 ; i < 256 ; ++i)
+      { U8 u = i ;
+	char *s = (char*)&sp->seqExpand[i] ;
+	char *q = (char*)&sp->qualExpand[i] ;
+	for (j = 4 ; j-- ; ) { *s++ = sp->unconv[u & 0x03] ; u >>= 2 ; }
+	for (j = 8 ; j-- ; ) { *q++ = (u & 0x01) ? qualThresh : 0 ; u >>= 1 ; }
+      }
+  }
+  return sp ;
+}
+
+U64 seqPackSeq (SeqPack *sp, char *s, U8 *u, U64 len) /* compress s into (len+3)/4 u */
 {
   U8 *u0 = u ;
   int i ;
-  if (!convert) convert = dna2index4Conv ;
-  while (len > 4)
-    { *u = 0 ; for (i = 0 ; i < 4 ; ++i) *u = (*u << 2) | convert[(int)*s++] ;
+  while (len >= 4)
+    { for (i = 0 ; i < 4 ; ++i) *u = (*u << 2) | sp->convert[(int)*s++] ;
       len -= 4 ; ++u ;
     }
   if (len)
-    { *u = 0 ; for (i = 0 ; i < len ; ++i) *u = (*u << 2) | convert[(int)*s++] ;
+    { *u = 0 ; for (i = 0 ; i < len ; ++i) *u = (*u << 2) | sp->convert[(int)*s++] ;
       ++u ;
     }
   return (u-u0) ;
 }
 
-void sqioSeqUnpack (U8 *u, char *s, U64 len, SeqIO *si) /* uncompress (len+3)/4 u into s */
+void seqUnpackSeq (SeqPack *sp, U8 *u, char *s, U64 len) /* uncompress (len+3)/4 u into s */
 {
   int i ;
-  while (len > 4)		/* NB needs to be > here not >= so can prime seqExpand */
-    { *(U32*)s = si->seqExpand[*u] ;
+  while (len >= 4)
+    { *(U32*)s = sp->seqExpand[*u] ;
       ++u ; s += 4 ; len -= 4 ;
     }
-  if (len) for (i = len ; --i ; ) { s[i] = si->unpackConvert[*u & 0x3] ; *u >>= 2 ; }
+  if (len) for (i = len ; --i ; ) { *s++ = sp->unconv[*u & 0x3] ; *u >>= 2 ; }
 }
 
-U64 sqioQualPack (char *q, U8 *u, U64 len, int thresh) /* compress q into (len+7)/8 u  */
+U64 seqPackQual (SeqPack *sp, char *q, U8 *u, U64 len) /* compress q into (len+7)/8 u */
 {
   U8 *u0 = u ;
   int i ;
-  while (len > 8)
-    { *u = 0 ; for (i = 0 ; i < 8 ; ++i) { if (*q++ >= thresh) *u |= 1 ; *u <<= 1 ; }
+  while (len >= 8)
+    { for (i = 0 ; i < 8 ; ++i) { if (*q++ >= sp->qualThresh) *u |= 1 ; *u <<= 1 ; }
       len -= 8 ; ++u ;
     }
   if (len)
-    { *u = 0 ; for (i = 0 ; i < len ; ++i) { if (*q++ >= thresh) *u |= 1 ; *u <<= 1 ; }
+    { *u = 0 ; for (i = 0 ; i < len ; ++i) { if (*q++ >= sp->qualThresh) *u |= 1 ; *u <<= 1 ; }
       ++u ;
     }
   return (u-u0) ;
 }
 
-void sqioQualUnpack (U8 *u, char *q, U64 len, SeqIO *si) /* uncompress (len+7)/8 u into q */
+void seqUnpackQual (SeqPack *sp, U8 *u, char *q, U64 len) /* uncompress (len+7)/8 u into q */
 {
   int i ;
-  while (len > 8)		/* NB needs to be > here not >= so can prime qualExpand */
-    { *(U64*)q = si->qualExpand[*u] ;
+  while (len >= 8)
+    { *(U64*)q = sp->qualExpand[*u] ;
       ++u ; q += 8 ; len -= 8 ;
     }
-  if (len) for (i = len ; --i ; ) { q[i] = (*u & 0x1) ? si->qualThresh : 0 ; *u >>= 1 ; }
+  if (len) for (i = len ; --i ; ) { q[i] = (*u & 0x1) ? sp->qualThresh : 0 ; *u >>= 1 ; }
 }
 
-/********* reverse complement index and text (including ambig) but not binary sequences ********/
+/********* reverse complement sequences ********/
 
-char* sqioRevComp (char* s, int len)
+char* seqRevComp (char* s, int len) // index and text (including ambig) 
 {
   char *r = new(len,char) ;
   r += len ;
   while (len--) *--r = complementBase[*s++] ;
   return r ;
+}
+
+U8 *seqRevComp2bit (U8* u, int len)
+{
+  int i ;
+  static U8 rcByte[256] ;
+  static bool isFirst = true ;
+  if (isFirst)
+    { for (i = 0 ; i < 256 ; ++i)
+	rcByte[~i] = ((i & 3) << 6) | ((i & 12) << 2) | ((i & 48) >> 2) | ((i & 192) >> 6) ;
+      isFirst = false ;
+    }
+
+  int blen = (len+3)/4 ;
+  U8* rc = new((len+3)/4,U8) ;
+  for (i = blen ; i-- ;) rc[i] = rcByte[*u++] ;
+  switch (len % 4) // now shift back
+    {
+    case 0:
+      break ;
+    case 1:
+      for (i = 0 ; i < blen-1 ; ++i) rc[i] = (rc[i] >> 6) | (rc[i+1] << 6) ;
+      rc[blen-1] = rc[blen-1] >> 6 ;
+      break ;
+    case 2:
+      for (i = 0 ; i < blen-1 ; ++i) rc[i] = (rc[i] >> 4) | (rc[i+1] << 4) ;
+      rc[blen-1] = rc[blen-1] >> 4 ;
+      break ;
+    case 3:
+      for (i = 0 ; i < blen-1 ; ++i) rc[i] = (rc[i] >> 2) | (rc[i+1] << 2) ;
+      rc[blen-1] = rc[blen-1] >> 2 ;
+      break ;
+    }
+  
+  return rc ;
 }
 
 /*********** standard conversion tables **************/
@@ -668,8 +721,8 @@ int dna2indexConv[] = {
   -2,  -2,  -2,  -2,   3,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,
 } ;
 
-int dna2index4Conv[] = {	/* sends N,n to A */
-  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2, 
+int dna2index4Conv[] = {    /* sends N,n to A - NB also 0,1,2,3 maintained */
+   0,   1,   2,   3,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2, 
   -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2, 
   -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2, 
   -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2, 

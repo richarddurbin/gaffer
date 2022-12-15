@@ -6,10 +6,12 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Aug 22 23:38 2022 (rd109)
+ * Last edited: Dec 15 10:33 2022 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
+
+#define VERSION "1.1"
 
 #include "utils.h"
 #include "seqio.h"
@@ -28,18 +30,18 @@ typedef struct {
 typedef struct {
   Array as ;                    // of int = Seq index
   int start, end ;              // start in as[0], end in as[max-1]
-  int len ;
-} Walk ;
+} Path ;
 
 typedef struct {
   OneFile *vf ;                 // just to carry header info
-  DICT  *seqName ;
   Array seq ;			// of Seq
   Array link ;                  // of Link
-  Array walk ;                  // of Array of Walk
-  bool isPerfect ;              // all links match exactly
-  bool hasDNA ;                 // true if the dna fields of seq[i] are filled
-  bool isOwnDNA ;               // does this object own its DNA sequences (used in destroy)
+  Array path ;                  // of Array of Path
+  DICT  *seqName ;
+  DICT  *pathName ;
+  bool  isPerfect ;             // all links match exactly
+  bool  hasDNA ;                // true if the dna fields of seq[i] are filled
+  bool  isOwnDNA ;              // does this object own its DNA sequences (used in destroy)
 } Gfa ;
 
 // have every sequence forwards and reverse complemented adjacent in gf->seq
@@ -50,7 +52,6 @@ static char *gfaSchemaText ;
 Gfa *gfaCreate (int nSeq, int nLink)
 {
   Gfa *gf = new0 (1, Gfa) ;
-  gf->seqName = dictCreate (nSeq) ;
   gf->seq = arrayCreate (nSeq, Seq) ;
   gf->link = arrayCreate (nLink, Link) ;
   return gf ;
@@ -58,18 +59,35 @@ Gfa *gfaCreate (int nSeq, int nLink)
 
 void gfaDestroy (Gfa *gf)
 { int i ;
-  dictDestroy (gf->seqName) ;
-  if (gf->hasDNA && gf->isOwnDNA)
-    for (i = arrayMax(gf->seq) ; i-- ;) free (arrp(gf->seq,i,Seq)->dna) ;
+  fprintf (stderr, "gfaDestroy\n") ;
   arrayDestroy (gf->seq) ;
+  fprintf (stderr, "gfaDestroy seq\n") ;
+ #ifdef PROBLEM 
+  if (gf->hasDNA && gf->isOwnDNA)
+    for (i = arrayMax(gf->seq) ; i-- ;)
+      if (arrp(gf->seq,i,Seq)->dna)
+	{ if (!(i%20)) fprintf (stderr, "\ngfaDestroy dna") ;
+	  fprintf (stderr, "  %d %lx", i, (unsigned long) arrp(gf->seq,i,Seq)->dna) ;
+	  free (arrp(gf->seq,i,Seq)->dna) ;
+	}
+  fprintf (stderr, "gfaDestroy dna\n") ;
+ #endif
   arrayDestroy (gf->link) ;
-  if (gf->walk)
-    { for (i = arrayMax(gf->walk) ; i-- ;) arrayDestroy(arrp(gf->walk,i,Walk)->as) ;
-      arrayDestroy (gf->walk) ;
+  fprintf (stderr, "gfaDestroy link\n") ;
+  if (gf->seqName) dictDestroy (gf->seqName) ;
+  fprintf (stderr, "gfaDestroy seqName\n") ;
+  if (gf->pathName) dictDestroy (gf->pathName) ;
+  fprintf (stderr, "gfaDestroy pathName\n") ;
+  if (gf->path)
+    { for (i = arrayMax(gf->path) ; i-- ;) arrayDestroy(arrp(gf->path,i,Path)->as) ;
+      arrayDestroy (gf->path) ;
     }
+  fprintf (stderr, "gfaDestroy path\n") ;
   if (gf->vf) oneFileClose (gf->vf) ; // will just free data as we set isWrite == false
   free (gf) ;
 }
+
+/*************************************************************************/
 
 Gfa *readOneFiles (char *stem)
 {
@@ -86,16 +104,22 @@ Gfa *readOneFiles (char *stem)
   if (!vfs) die ("can't open %s to read", fileName) ;
   if (!oneFileCheckSchema (vfs, "P 3 seg\nO S 1 3 INT\n"))
     die ("schema mismatch %s", fileName) ;
-  int nSeg = vfs->info[vfs->objectType]->given.count ;
+  int nSeg = vfs->info['S']->given.count ;
 
   strcpy (fileName+stemLen, ".1lnk") ;
   OneFile *vfl = oneFileOpenRead (fileName, schema, "lnk", 1) ;
   if (!vfl) die ("can't open %s to read", fileName) ;
   if (!oneFileCheckSchema (vfl, "P 3 lnk\nO L 4 3 INT 4 CHAR 3 INT 4 CHAR\nD O 1 3 INT\n"))
     die ("schema mismatch %s", fileName) ;
-  int nLink = vfl->info[vfl->objectType]->given.count ;
+  int nLink = vfl->info['I']->given.count ;
 
   Gfa *gf = gfaCreate (nSeg, nLink) ;
+
+  if (vfs->info['I'] && vfs->info['I']->given.count)
+    { if (vfs->info['I']->given.count != nSeg)
+	die ("name number %d does not match seq number %d", vfs->info['I']->given.count, nSeg) ;
+      gf->seqName = dictCreate (nSeg) ;
+    }
   
   while (oneReadLine (vfs))
     if (vfs->lineType == 'S')
@@ -105,8 +129,8 @@ Gfa *readOneFiles (char *stem)
 	s->len = oneLen(vfs) ;
       }
     else if (vfs->lineType == 'I') // assumes one per 'S' line - should be true 
-      { if (!dictAdd (gf->seqName, oneString(vfs), 0)) die ("duplicate S line %d", vfs->line) ;
-      }
+      if (!dictAdd (gf->seqName, oneString(vfs), 0))
+	die ("duplicate seg name line %d", vfs->line) ;
   // create shell OneFile to maintain header information
   gf->vf = oneFileOpenWriteFrom ("-", vfs, false, 1) ; gf->vf->isWrite = false ;
   printf ("read file %s with %d segs\n", fileName, (int)vfs->object) ;
@@ -127,51 +151,57 @@ Gfa *readOneFiles (char *stem)
   oneFileClose (vfl) ;
 
   strcpy (fileName+stemLen, ".1sgs") ;
-  OneFile *vfq = oneFileOpenRead (fileName, schema, "seq", 1) ;
-  if (vfq)
-    { if (!oneFileCheckSchema (vfq, "P 3 seq\nO S 1 3 DNA\n"))
+  OneFile *vfd = oneFileOpenRead (fileName, schema, "seq", 1) ;
+  if (vfd)
+    { if (!oneFileCheckSchema (vfd, "P 3 seq\nO S 1 3 DNA\n"))
 	die ("schema mismatch %s", fileName) ;
-      while (oneReadLine (vfq))
-	if (vfq->lineType == 'S')
-	  { Seq *s = arrp(gf->seq, 2*(vfq->object-1), Seq) ;
-	    assert (oneLen(vfq) == s->len) ;
-	    s->dna = new(s->len, char) ; memcpy (s->dna, oneString(vfq), s->len) ;
-	    s[1].dna = new(s->len, char) ; s[1].dna = sqioRevComp(s->dna, s->len) ;
+      while (oneReadLine (vfd))
+	if (vfd->lineType == 'S')
+	  { Seq *s = arrp(gf->seq, 2*(vfd->object-1), Seq) ;
+	    assert (oneLen(vfd) == s->len) ;
+	    s->dna = new(s->len, char) ; memcpy (s->dna, oneString(vfd), s->len) ;
+	    s[1].dna = new(s->len, char) ; s[1].dna = seqRevComp(s->dna, s->len) ;
 	  }
-      printf ("read file %s with %d sequences\n", fileName, (int)vfq->object) ;
-      oneFileClose (vfq) ;
+      printf ("read file %s with %d sequences\n", fileName, (int)vfd->object) ;
+      oneFileClose (vfd) ;
       gf->hasDNA = true ;
       gf->isOwnDNA = true ;
     }
 
-  strcpy (fileName+stemLen, ".1wlk") ;
-  OneFile *vfw = oneFileOpenRead (fileName, schema, "wlk", 1) ;
-  if (vfw)
-    { if (!oneFileCheckSchema (vfw,"P 3 wlk\nO W 2 3 INT 1 8 INT_LIST\n"
-			       "D D 1 6 STRING\nD S 1 3 INT\nD E 1 3 INT\n"))
+  strcpy (fileName+stemLen, ".1pth") ;
+  OneFile *vfp = oneFileOpenRead (fileName, schema, "pth", 1) ;
+  if (vfp)
+    { if (!oneFileCheckSchema (vfp,"P 3 wlk\nO P 1 8 INT_LIST\nD D 1 6 STRING\n"))
 	die ("schema mismatch %s", fileName) ;
-      Walk *w ;
-      while (oneReadLine (vfw))
-	switch (vfw->lineType)
+      gf->path = arrayCreate (vfp->info['P']->given.count, Path) ;
+      if (vfp->info['I'] && vfp->info['I']->given.count)
+	gf->pathName = dictCreate (vfp->info['I']->given.count) ;
+      Path *p = 0 ;
+      while (oneReadLine (vfp))
+	switch (vfp->lineType)
 	  {
-	  case 'W':
-	    w = arrayp(gf->walk, arrayMax(gf->walk), Walk) ;
-	    w->len = oneInt(vfw,0) ;
-	    int i, n = oneLen(vfw) ;
-	    I64 *i64 = oneIntList(vfw) ;
-	    w->as = arrayCreate (n,int) ;
-	    for (i = 0 ; i < n ; ++i) arr(w->as,i,int) = 2 * (i64[i] - 1) ;
-	    arrayMax(w->as) = n ;
+	  case 'P':
+	    p = arrayp(gf->path, arrayMax(gf->path), Path) ;
+	    int i, n = oneLen(vfp) ;
+	    I64 *i64 = oneIntList(vfp) ;
+	    p->as = arrayCreate (n,int) ;
+	    for (i = 0 ; i < n ; ++i) arr(p->as,i,int) = 2 * (i64[i] - 1) ;
+	    arrayMax(p->as) = n ;
 	    break ;
 	  case 'D':
-	    n = oneLen(vfw) ; // inherit declaration of i, n from above
-	    char *c = oneString(vfw) ;
-	    for (i = 0 ; i < n ; ++i) if (c[i] == '<') ++arr(w->as,i,int) ;
+	    n = oneLen(vfp) ; // inherit declaration of i, n from above
+	    char *c = oneString(vfp) ;
+	    for (i = 0 ; i < n ; ++i) if (c[i] == '<') ++arr(p->as,i,int) ;
 	    break ;
-	  case 'S': w->start = oneInt(vfw,0) ; break ;
-	  case 'E': w->end = oneInt(vfw,0) ; break ;
+	  case 'I':
+	    if (!dictAdd (gf->pathName, oneString(vfs), 0))
+	      die ("duplicate S line %d", vfs->line) ;
+	    break ;
+	  case 'S': p->start = oneInt(vfp,0) ; break ;
+	  case 'E': p->end = oneInt(vfp,0) ; break ;
 	  }
-      oneFileClose (vfw) ;
+      printf ("read file %s with %d paths\n", fileName, (int)vfp->object) ;
+      oneFileClose (vfp) ;
     }
 
   free (fileName) ;
@@ -189,12 +219,11 @@ void writeOneFiles (Gfa *gf, char *stem)
   strcpy (fileName+stemLen, ".1seg") ;
   OneFile *vfseg = oneFileOpenWriteFrom (fileName, gf->vf, true, 1) ; // use existing header
   if (!vfseg) die ("can't open % to write", fileName) ;
-  oneWriteHeader (vfseg) ;
   for (i = 0 ; i < arrayMax(gf->seq) ; i += 2) /* only write sequences in one direction */
     { Seq *s = arrp(gf->seq, i, Seq) ;
       oneInt(vfseg,0) = s->len ;
       oneWriteLine (vfseg, 'S', 0, 0) ;
-      if (dictMax(gf->seqName) > i/2)
+      if (gf->seqName)
 	{ char *name = dictName(gf->seqName, i/2) ;
 	  oneWriteLine (vfseg, 'I', strlen(name), name) ;
 	}	  
@@ -206,7 +235,6 @@ void writeOneFiles (Gfa *gf, char *stem)
     { strcpy (fileName+stemLen, ".1sgs") ;
       OneFile *vfseq = oneFileOpenWriteNew (fileName, schema, "sgs", true, 1) ;
       if (!vfseq) die ("can't open % to write", fileName) ;
-      oneWriteHeader (vfseq) ;
       for (i = 0 ; i < arrayMax(gf->seq) ; i += 2) /* only write sequences in one direction */
 	{ Seq *s = arrp(gf->seq, i, Seq) ;
 	  oneWriteLine (vfseq, 'S', s->len, s->dna) ;
@@ -218,7 +246,6 @@ void writeOneFiles (Gfa *gf, char *stem)
   strcpy (fileName+stemLen, ".1lnk") ;
   OneFile *vfl = oneFileOpenWriteNew (fileName, schema, "lnk", true, 1) ;
   if (!vfl) die ("can't open %s", fileName) ;
-  oneWriteHeader (vfl) ;
   for (i = 0 ; i < arrayMax(gf->link) ; ++i)
     { Link *l = arrp(gf->link, i, Link) ;
       oneInt(vfl,0) = 1 + (l->s1 >> 1) ;
@@ -231,37 +258,42 @@ void writeOneFiles (Gfa *gf, char *stem)
   fprintf (stderr, "wrote %d objects to %s\n", (int)vfl->object, fileName) ;
   oneFileClose (vfl) ;
 
-  if (gf->walk)
-    { strcpy (fileName+stemLen, ".1wlk") ;
-      OneFile *vfw = oneFileOpenWriteNew (fileName, schema, "wlk", true, 1) ;
-      if (!vfw) die ("can't open %s", fileName) ;
-      oneWriteHeader (vfw) ;
+  if (gf->path)
+    { strcpy (fileName+stemLen, ".1pth") ;
+      OneFile *vfp = oneFileOpenWriteNew (fileName, schema, "pth", true, 1) ;
+      if (!vfp) die ("can't open %s", fileName) ;
       Array aI64 = arrayCreate (64, I64) ;
       Array aDir = arrayCreate (64, char) ;
       int j ;
-      for (i = 0 ; i < arrayMax(gf->walk) ; ++i)
-	{ Walk *w = arrp(gf->walk, i, Walk) ;
-	  int j, n = arrayMax(w->as) ;
+      for (i = 0 ; i < arrayMax(gf->path) ; ++i)
+	{ Path *p = arrp(gf->path, i, Path) ;
+	  int j, n = arrayMax(p->as) ;
 	  array(aI64,n-1,I64) = 0 ; // ensure space so can use arr inside loop
 	  array(aDir,n-1,char) = 0 ; // ensure space so can use arr inside loop
-	  int *asj = arrp(w->as, 0, int) ;
+	  int *asj = arrp(p->as, 0, int) ;
 	  for (j = 0 ; j < n ; ++j, ++asj)
 	    { arr(aI64,j,I64) = 1 + (*asj >> 1) ; // can use arr() since space confirmed
 	      arr(aDir,j,char) = (*asj & 0x1) ? '<' : '>' ;
 	    }
 	  arrayMax(aI64) = n ; arrayMax(aDir) = n ; // must set by hand because not set by arr
-	  oneInt(vfw,0) = w->len ; oneWriteLine (vfw, 'W', n, arrp(aI64,0,I64)) ;
-	  oneWriteLine (vfw, 'D', n, arrp(aDir,0,char)) ;
-	  if (w->start) { oneInt(vfw,0) = w->start ; oneWriteLine (vfw, 'S', 0, 0) ; }
-	  if (w->end) { oneInt(vfw,0) = w->end ; oneWriteLine (vfw, 'E', 0, 0) ; }
+	  oneWriteLine (vfp, 'P', n, arrp(aI64,0,I64)) ;
+	  oneWriteLine (vfp, 'D', n, arrp(aDir,0,char)) ;
+	  if (gf->pathName)
+	    { char *name = dictName (gf->pathName, i) ;
+	      oneWriteLine (vfp, 'I', strlen(name), name) ;
+	    }
+	  if (p->start) { oneInt(vfp,0) = p->start ; oneWriteLine (vfp, 'S', 0, 0) ; }
+	  if (p->end) { oneInt(vfp,0) = p->end ; oneWriteLine (vfp, 'E', 0, 0) ; }
 	}
-      fprintf (stderr, "wrote %d objects to %s\n", (int)vfw->object, fileName) ;
-      oneFileClose (vfw) ;
+      fprintf (stderr, "wrote %d objects to %s\n", (int)vfp->object, fileName) ;
+      oneFileClose (vfp) ;
     }
   
   free (fileName) ;
   oneSchemaDestroy (schema) ;
 }
+
+/*************************************************************************/
 
 Gfa *gfaParseSL (char *filename)
 {
@@ -269,6 +301,7 @@ Gfa *gfaParseSL (char *filename)
   if (!f) die ("failed to open GFA file %s", filename) ;
 
   Gfa *gf = gfaCreate (10000, 10000) ;
+  gf->seqName = dictCreate (10000) ; // gfa parsing always requires sequence names
   // make a stub OneFile, into which provenance and comments can be written
   OneSchema *schema = oneSchemaCreateFromText (gfaSchemaText) ;
   gf->vf = oneFileOpenWriteNew ("-", schema, "seg", false, 1) ; gf->vf->isWrite = false ;
@@ -284,7 +317,7 @@ Gfa *gfaParseSL (char *filename)
 	{
 	case 'S':
 	  word = fgetword (f) ; // name
-	  if (!dictAdd (gf->seqName, word, &index)) die ("duplicate S line %d", line) ;
+	  if (!dictAdd (gf->seqName, word, &index)) die ("duplicate S id line %d", line) ;
 	  Seq *seq = arrayp(gf->seq, arrayMax(gf->seq), Seq) ;
 	  word = fgetword (f) ; // sequence
 	  if (*word != '*')
@@ -303,7 +336,7 @@ Gfa *gfaParseSL (char *filename)
 	  // now make the reverse complement as the (n+1)th Seq
 	  Seq *seq2 = arrayp(gf->seq, arrayMax(gf->seq), Seq) ;
 	  seq2->len = seq->len ;
-	  if (seq->dna) seq2->dna = sqioRevComp (seq->dna, seq->len) ;
+	  if (seq->dna) seq2->dna = seqRevComp (seq->dna, seq->len) ;
 	  break ;
 	case 'L':
 	  word = fgetword (f) ; // seq1
@@ -320,7 +353,7 @@ Gfa *gfaParseSL (char *filename)
 	  if (*word == '-') ++link->s2 ;
 	  else if (*word != '+') die ("bad d2 line %d", line) ;
 	  word = fgetword (f) ; // cigar - this code only parses exact match
-	  if (!*word) die ("empty match line %d", line) ;
+	  if (!*word) die ("empty cigar field line %d", line) ;
 	  char *s = word ; while (*s) ++s ; --s ;
 	  if (*s != 'M') die ("not an expected match line %d", line) ;
 	  *s = 0 ;
@@ -335,7 +368,30 @@ Gfa *gfaParseSL (char *filename)
 	      l2->s1 = RC(link->s2) ; l2->s2 = RC(link->s1) ; l2->overlap = link->overlap ;
 	    }
 	  break ;
-	case 'A':
+	case 'P':
+	  if (!gf->path) gf->path = arrayCreate (10000, Path) ;
+	  if (!gf->pathName) gf->pathName = dictCreate (10000) ;
+	  word = fgetword (f) ; // name
+	  if (!dictAdd (gf->pathName, word, &index)) die ("duplicate P id in line %d", line) ;
+	  Path *p = arrayp(gf->path, arrayMax(gf->path), Path) ;
+	  word = fgetword (f) ; // path name
+	  int n = 1, i ;
+	  for (s = word ; *s ; ++s) if (*s == ',') { ++n ; *s = 0 ; }
+	  p->as = arrayCreate (n, int) ; arrayMax(p->as) = n ; // will use arr() below
+	  for (i = 0, s = word ; i < n ; ++i)
+	    { int k = strlen (s) - 1 ;
+	      arr(p->as,i,int) = (s[k] == '+') ? 0 : 1 ;
+	      s[k] = 0 ;
+	      if (!dictFind (gf->seqName, s, &index)) die ("unknown seq %s in line %d", s, line) ;
+	      arr(p->as,i,int) += 2*index ;
+	    }
+	  fgetword (f) ; // ignore the cigar field
+	  while ((word = fgetword (f)) && *word) // optional fields
+	    if (!strncmp (word, "ST:i:", 5)) p->start = atoi (&word[5]) ;
+	    else if (!strncmp (word, "EN:i:", 5)) p->end = atoi (&word[5]) ;
+	    else die ("unknown additional field %s in line %d", word, line) ;
+	  break ;
+	case 'A': // HiFiAsm makes these - I will ignore them for now
 	  break ;
 	default:
 	  die ("bad gfa line type %c (ASCII %d) line %d", *word, *word, line) ;
@@ -349,6 +405,85 @@ Gfa *gfaParseSL (char *filename)
 	  arrayMax(gf->seq), arrayMax(gf->link), filename) ;
   return gf ;
 }
+
+// need to write names and directions of segments and paths into GFA file
+// write 1-based integers if they have no names
+
+static inline char  seqDir (int i) { return (i&1) ? '-' : '+' ; }
+static inline char* seqName (Gfa *gf, int i)
+{ static char buf[64] ;
+  if (gf->seqName) return dictName(gf->seqName, i/2) ;
+  else { sprintf (buf, "%d", 1 + i/2) ; return buf ; }
+}
+static inline char* pathName (Gfa *gf, int i)
+{ static char buf[64] ;
+  if (gf->pathName) return dictName(gf->pathName, i) ;
+  else { sprintf (buf, "%d", arrayMax(gf->seq)/2 + 1 + i) ; return buf ; }
+}
+
+void gfaWrite (Gfa *gf, char *file)
+/* example from https://github.com/GFA-spec/GFA-spec/blob/master/GFA1.md
+H	VN:Z:1.0
+S	11	ACCTT
+S	12	TCAAGG
+S	13	CTTGATT
+L	11	+	12	-	4M
+L	12	-	13	+	5M
+L	11	+	13	+	3M
+P	14	11+,12-,13+	4M,5M 
+// in the P lines it is possible to have * for cigar, and get overlaps from links - I write this
+
+// GFA 1.1 has path 'W' lines, which are nicer in some ways, but there is less support for these
+// W walks need to have 0M end join (non-overlapping) segments
+H	VN:Z:1.1
+S	s11	ACCTT
+S	s12	TC
+S	s13	GATT
+L	s11	+	s12	-	0M
+L	s12	-	s13	+	0M
+L	s11	+	s13	+	0M
+W	NA12878	1	chr1	0	11	>s11<s12>s13
+*/
+{
+  int i, j ;
+  FILE *f = fzopen (file, "w") ;
+  if (!f) die ("failed to open %s to write gfa file", file) ;
+
+  for (i = 0 ; i < arrayMax(gf->seq) ; i += 2) /* only write sequences in one direction */
+    { Seq *s = arrp(gf->seq, i, Seq) ;
+      fprintf (f, "S\t%s", seqName (gf, i)) ;
+      if (s->dna) fprintf (f, "\t%*s\n", s->len, s->dna) ;
+      else fprintf (f, "\t*\tLN:i:%d\n", s->len) ;
+      if (!(s->dna[s->len-1] == 'a' || s->dna[s->len-1] == 'c' ||
+	    s->dna[s->len-1] == 'g' || s->dna[s->len-1] == 't'))
+	fprintf (stderr, "bad dna end for seq %d len %d char %d = %c\n",
+		 i, s->len, s->dna[s->len-1], s->dna[s->len-1]) ;
+    }
+
+  for (i = 0 ; i < arrayMax(gf->link) ; ++i)
+    { Link *l = arrp(gf->link, i, Link) ;
+      fprintf (f, "L\t%s\t%c\t%s\t%c\t%dM\n",
+	       seqName(gf,l->s1), seqDir(l->s1), seqName(gf,l->s2), seqDir(l->s2), l->overlap) ;
+    }
+
+  if (gf->path)
+    for (i = 0 ; i < arrayMax(gf->path) ; ++i)
+      { Path *p = arrp(gf->path, i, Path) ;
+	fprintf (f, "P\t%s", pathName(gf,i)) ;
+	assert (p->as && arrayMax(p->as) > 0) ;
+	fprintf (f, "\t%s%c", seqName(gf,arr(p->as,0,int)), seqDir(arr(p->as,0,int))) ;
+	for (j = 1 ; j < arrayMax(p->as) ; ++j)
+	  fprintf (f, ",%s%c", seqName(gf,arr(p->as,j,int)), seqDir(arr(p->as,j,int))) ;
+	fprintf (f, "\t*") ;
+	if (p->start) fprintf (f, "\tST:i:%d", p->start) ;
+	if (p->end)   fprintf (f, "\tEN:i:%d", p->end) ;
+	fputc ('\n', f) ;
+      }
+  
+  fclose (f) ;
+}
+
+/*************************************************************************/
 
 int linkOrder1 (const void *a, const void *b) // by s1, then s2
 { Link *la = (Link*)a, *lb = (Link*)b ;
@@ -385,7 +520,7 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
 	  die ("length mismatch for %s seq %lld != gfa %lld", sqioId(si), si->seqLen, seq->len) ;
 	seq->dna = new (si->seqLen, char) ;
 	memcpy (seq->dna, sqioSeq(si), si->seqLen) ;
-	++seq ; seq->dna = sqioRevComp (sqioSeq(si), si->seqLen) ;
+	++seq ; seq->dna = seqRevComp (sqioSeq(si), si->seqLen) ;
 	total += si->seqLen ;
       }
     else
@@ -580,20 +715,19 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
     }
   free (cutMax) ;
 
-  // next create gf2: seqs from the segments between cuts, and links and walks from the seqs
+  // next create gf2: seqs from the segments between cuts, and links and paths from the seqs
   Gfa *gf2 = gfaCreate (arrayMax(gf1->seq)+arrayMax(gf1->link), 8*arrayMax(gf1->link)) ;
-  gf2->walk = arrayCreate (arrayMax(gf1->seq), Walk) ;
+  gf2->path = arrayCreate (arrayMax(gf1->seq), Path) ;
   gf2->hasDNA = true ;
   gf2->isOwnDNA = false ;
   
   Hash newSeqHash = hashCreate (2*arrayMax(gf1->link)) ;
   for (is = 0 ; is < nSeq ; ++is)
-    { Walk *wi = arrayp(gf2->walk, is, Walk) ;
-      wi->len = arrp(gf1->seq,is,Seq)->len ;
+    { Path *wi = arrayp(gf2->path, is, Path) ;
       wi->start = 0 ;
       wi->as = arrayCreate (arrayMax(cut[is])/2, int) ;
       if (is == X || is == RC(X)) // debug section
-	{ printf ("seq %d len %d when building gf2\n  cut", is, wi->len) ;
+	{ printf ("seq %d len %d when building gf2\n  cut", is, arrp(gf1->seq,is,Seq)->len) ;
 	  for (c = arrp(cut[is],0,Cut) ; c < arrp(cut[is],arrayMax(cut[is]),Cut) ; ++c)
 	    printf (" (%d,%d,%d)%c", c->x, c->s, c->sx, c->isLeft?'L':'R') ;
 	  putchar ('\n') ;
@@ -635,34 +769,37 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
   printf ("%d initial new links before compression\n", arrayMax(gf2->link)) ;
   arrayCompress (gf2->link) ;
 
-  printf ("made blunt gfa with %d seqs, %d links and %d walks\n",
-	  arrayMax(gf2->seq), arrayMax(gf2->link), arrayMax(gf2->walk)) ;
+  printf ("made blunt gfa with %d seqs, %d links and %d paths\n",
+	  arrayMax(gf2->seq), arrayMax(gf2->link), arrayMax(gf2->path)) ;
 
-  // now check the walks
+  // now check the paths
   for (is = 0 ; is < nSeq ; ++is)
     { char *s = arrp(gf1->seq, is, Seq)->dna ;
       if (!s) continue ;
-      Walk *w = arrp(gf2->walk, is, Walk) ;
+      Path *p = arrp(gf2->path, is, Path) ;
       int i, j, n = 0 ;
       if (is == X || is == RC(X)) // debug section
-	printf ("is %d walk %d segs %d start %d end %d len\n",
-		is, arrayMax(w->as), w->start, w->end, w->len) ;
-      for (i = 0 ; i < arrayMax(w->as) ; ++i)
-	{ Seq *fs = arrp(gf2->seq, arr(w->as,i,int), Seq) ;
+	printf ("is %d path %d segs %d start %d end\n",
+		is, arrayMax(p->as), p->start, p->end) ;
+      assert (p->start == 0 && p->end == 0) ; // code below currently requires this
+      for (i = 0 ; i < arrayMax(p->as) ; ++i)
+	{ Seq *fs = arrp(gf2->seq, arr(p->as,i,int), Seq) ;
 	  char *t = fs->dna ;
 	  if (is == X || is == RC(X)) // debug section
-	    printf ("  seg %d len %d\n", arr(w->as,i,int), fs->len) ;
+	    printf ("  seg %d len %d\n", arr(p->as,i,int), fs->len) ;
 	  //	  printf ("seq %d pos %d starting cut %d len %d\n", is, n, i, fs->len) ;
 	  for (j = 0 ; j < fs->len ; ++j, ++n)
 	    if (*s++ != *t++)
-	      die ("walk mismatch: seq %d len %d pos %d frag %d base %d",
+	      die ("path mismatch: seq %d len %d pos %d frag %d base %d",
 		   is, arrp(gf1->seq, is, Seq)->len, n, i, j) ;
 	}
     }
-  printf ("all walks check out\n") ;
+  printf ("all paths check out\n") ;
 
   return gf2 ;
 }
+
+Gfa *chain (Gfa *gf) { return gf ; } // a stub for now
 
 void usage (void)
 {
@@ -671,10 +808,12 @@ void usage (void)
   fprintf (stderr, "   -write <stem>   : write ONE files\n") ;
   fprintf (stderr, "   -schema         : print ONE schema\n") ;
   fprintf (stderr, "   -readGfa <gfa file> : only reads S and L lines for now\n") ;
-  fprintf (stderr, "   -dna <sequence file matching S line names>\n") ;
+  fprintf (stderr, "   -writeGfa <gfa file>\n") ;
+  fprintf (stderr, "   -readDna <sequence file matching S line names>\n") ;
+  fprintf (stderr, " // options below change the graph\n") ;
   fprintf (stderr, "   -removeBadLinks : (for now) remove imperfect overlaps\n") ;
   fprintf (stderr, "   -blunt          : makes new non-overlapping graph\n") ;
-  fprintf (stderr, "   -depth <gfa file with A lines>\n") ;
+  fprintf (stderr, "   -chain          : chain 1-1 links into unitigs\n") ;
   fprintf (stderr, "   -extend         : adds match blocks for shared incoming edges - needs seq\n") ;
   exit (0) ;
 }
@@ -690,21 +829,7 @@ int main (int argc, char *argv[])
   while (argc)
     { if (**argv != '-') die ("argument %s is expected to start with '-'", *argv) ;
       char *command = *argv+1 ;
-      if (gf)
-	{
-	}
-      if (!strcmp (*argv, "-readGfa") && argc >= 2)
-	{ if (gf) { fprintf (stderr, "removing existing gf\n") ; gfaDestroy (gf) ; }
-	  gf = gfaParseSL (argv[1]) ;
-	  linkRemoveDuplicates (gf) ;
-	  argc -= 2 ; argv += 2 ; 
-	}
-      else if (!strcmp (*argv, "-dna") && argc >= 2)
-	{ if (gf) readSeqFile (gf, argv[1]) ;
-	  else fprintf (stderr, "can't read sequences without a graph\n") ;
-	  argc -= 2 ; argv += 2 ; 
-	}
-      else if (!strcmp (*argv, "-read") && argc >= 2)
+      if (!strcmp (*argv, "-read") && argc >= 2)
 	{ if (gf) { fprintf (stderr, "removing existing gf\n") ; gfaDestroy (gf) ; }
 	  gf = readOneFiles (argv[1]) ;
 	  argc -= 2 ; argv += 2 ; 
@@ -718,14 +843,43 @@ int main (int argc, char *argv[])
 	{ printf ("%s", gfaSchemaText) ;
 	  argc-- ; argv++ ; 
 	}
+      else if (!strcmp (*argv, "-readGfa") && argc >= 2)
+	{ if (gf) { fprintf (stderr, "removing existing gf\n") ; gfaDestroy (gf) ; }
+	  gf = gfaParseSL (argv[1]) ;
+	  linkRemoveDuplicates (gf) ;
+	  oneAddProvenance (gf->vf, "gaffer", VERSION, "readGfa %s // nS %d nL %d nP %d", argv[1],
+			    arrayMax(gf->seq), arrayMax(gf->link),
+			    gf->path ? arrayMax(gf->path) : 0) ;
+	  argc -= 2 ; argv += 2 ; 
+	}
+      else if (!strcmp (*argv, "-writeGfa") && argc >= 2)
+	{ gfaWrite (gf, argv[1]) ;
+	  oneAddProvenance (gf->vf, "gaffer", VERSION, "writeGfa %s", argv[1]) ;
+	  argc -= 2 ; argv += 2 ; 
+	}
+      else if (!strcmp (*argv, "-readDna") && argc >= 2)
+	{ if (gf)
+	    { readSeqFile (gf, argv[1]) ;
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "readDna %s", argv[1]) ;
+	    }
+	  else fprintf (stderr, "can't read sequences without a graph\n") ;
+	  argc -= 2 ; argv += 2 ; 
+	}
       else if (!strcmp (*argv, "-removeBadLinks"))
-	{ if (gf) linkRemoveBad (gf) ;
+	{ if (gf)
+	    { linkRemoveBad (gf) ;
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "removeBadLinks // nL %d",
+				arrayMax (gf->link)) ;
+	    }
 	  else fprintf (stderr, "can't remove bad links without a graph\n") ;
 	  argc-- ; argv++ ;
 	}
       else if (!strcmp (*argv, "-blunt"))
 	{ if (gf)
 	    { Gfa *gf2 = bluntify (gf) ;
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "bluntify // nS %d nL %d nP %d",
+				arrayMax(gf->seq), arrayMax(gf->link),
+				gf->path ? arrayMax(gf->path) : 0) ;
 	      gf2->vf = gf->vf ; gf->vf = 0 ; 
 	      gfaDestroy (gf) ;
 	      gf = gf2 ;
@@ -733,10 +887,23 @@ int main (int argc, char *argv[])
 	  else fprintf (stderr, "can't bluntify without a graph\n") ;
 	  argc-- ; argv++ ;
 	}
+      else if (!strcmp (*argv, "-chain"))
+	{ if (gf)
+	    { Gfa *gf2 = chain (gf) ;
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "chain // nS %d nL %d",
+				arrayMax(gf->seq), arrayMax(gf->link)) ;
+	      gf2->vf = gf->vf ; gf->vf = 0 ; 
+	      gfaDestroy (gf) ;
+	      gf = gf2 ;
+	    }
+	  else fprintf (stderr, "can't chain without a graph\n") ;
+	  argc-- ; argv++ ;
+	}
       else die ("unrecognised option %s - run without args for help", *argv) ;
       fprintf (stderr, "%s: ", command) ; timeUpdate (stderr) ;
     }
 
+  fprintf (stderr, "cleaning up\n") ;
   if (gf) gfaDestroy (gf) ;
   fprintf (stderr, "total: ") ; timeTotal (stderr) ;
 }
@@ -777,6 +944,14 @@ static char *gfaSchemaText =
   "D K 1 3 INT                         KC k-mer count\n"
   "D I 1 6 STRING                      ID edge identifier (deprecated)\n"
   ".\n"
+  "P 3 pth                 PATH\n"
+  "O P 1 8 INT_LIST        list of segments\n"
+  "D D 1 6 STRING          list of directions of each segment (+ or -) - required\n"
+  "D I 1 6 STRING          path identifier (required by GFA) - optional here\n"
+  "D G 1 11 STRING_LIST    list of cigar strings for overlaps - optional/deprecated\n"
+  "D S 1 3 INT             start in first segment - defaults to 0 if missing\n"
+  "D E 1 3 INT             end distance from end of last segment - defaults to 0 if missing\n"
+  ".\n"
   "P 3 wlk                 WALK - in GFA 1.1 only - requires non-overlapping segments\n"
   "O W 2 3 INT 8 INT_LIST  length, list of segments\n"
   "D D 1 6 STRING          list of directions of each segment (+ or -) - required\n"
@@ -784,7 +959,7 @@ static char *gfaSchemaText =
   "D J 1 6 STRING          sample identifier (required by GFA)\n"
   "D H 1 3 INT             haplotype : 1..<ploidy> - missing if 0 in GFA = haploid or unknown\n"
   "D S 1 3 INT             start in first segment - defaults to 0 if missing\n"
-  "D E 1 3 INT             end in last segment - defaults to end of segment if missing\n"
+  "D E 1 3 INT             end distance from end of last segment - defaults to 0 if missing\n"
   ".\n"
   "P 3 ctn                                  CONTAINMENT - contained and container are both segs\n"
   "O L 5 3 INT 4 CHAR 3 INT 4 CHAR 3 INT    s1 dir1 s2 dir2 pos - s1,2 in seg file dir=+|- start position\n"
@@ -793,20 +968,14 @@ static char *gfaSchemaText =
   "D R 1 3 INT                              RC read count\n"
   "D M 1 3 INT                              NM number of mismatches\n"
   ".\n"
-  "P 3 pth                PATH\n"
-  "O P 1 8 INT_LIST       list of segments\n"
-  "D D 1 6 STRING         list of directions of each segment (+ or -) - required\n"
-  "D G 1 11 STRING_LIST   list of cigar strings for overlaps - optional/deprecated\n"
-  "D I 1 6 STRING         path identifier (required by GFA)\n"
-  ".\n"
-  "P 3 aln                  ALIGNMENT - of sequences from a sequence file, e.g. reads\n"
-  "O A 2 3 INT 8 INT_LIST   index of seq to align, list of segments as in WALK\n"
-  "D D 1 6 STRING           list of directions of each segment (+ or -) - required\n"
-  "D S 1 3 INT              start - as in WALK\n"
-  "D E 1 3 INT              end - as in WALK\n"
-  "D G 1 6 STRING           cigar string - for mapping\n"
-  "D Q 1 3 INT              mapping quality\n"
-  "D M 1 3 INT              number of mismatches\n"
+  "P 3 aln                 ALIGNMENT - of sequences from a sequence file, e.g. reads\n"
+  "O A 2 3 INT 8 INT_LIST  index of seq to align, list of segments as in WALK\n"
+  "D D 1 6 STRING          list of directions of each segment (+ or -) - required\n"
+  "D S 1 3 INT             start - as in WALK\n"
+  "D E 1 3 INT             end - as in WALK\n"
+  "D G 1 6 STRING          cigar string - for mapping\n"
+  "D Q 1 3 INT             mapping quality\n"
+  "D M 1 3 INT             number of mismatches\n"
   ".\n" ;
   
 /******************* end of file *******************/

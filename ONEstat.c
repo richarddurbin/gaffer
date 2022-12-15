@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University, 2019
  *
  * HISTORY:
- * Last edited: May 12 19:36 2020 (rd109)
+ * Last edited: Oct  7 07:56 2022 (rd109)
  *   * Dec 27 09:20 2019 (gene): style edits
  *   * Created: Thu Feb 21 22:40:28 2019 (rd109)
  *
@@ -195,7 +195,6 @@ int main (int argc, char **argv)
 	    if (vfOut->info[i])
 	      vfOut->info[i]->given = vf->info[i]->accum ;
   
-	  oneWriteHeader (vfOut) ;
 	  fflush (vfOut->f) ;
 	  oneFileClose (vfOut) ;
 	}

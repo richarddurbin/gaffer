@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Aug 16 22:54 2022 (rd109)
+ * Last edited: Dec 15 10:33 2022 (rd109)
  * Created: Sat Nov 10 08:51:49 2018 (rd109)
  *-------------------------------------------------------------------
  */
@@ -20,25 +20,31 @@ typedef enum { UNKNOWN, FASTA, FASTQ, BINARY, ONE, BAM } SeqIOtype ;
 extern char* seqIOtypeName[] ; // = { "unknown", "fasta", "fastq", "binary", "onecode", "bam" } ;
 
 typedef struct {
+  int  qualThresh ;
+  int *convert ;               /* pointer to a converter, probably from the list below */
+  char unconv[5] ;		/* 5 so we can strcpy() into it */
+  U32  seqExpand[256] ;
+  U64  qualExpand[256] ;
+} SeqPack ;
+
+typedef struct {
   SeqIOtype type ;
-  bool isWrite ;
-  U64 nSeq, totIdLen, totDescLen, totSeqLen, maxIdLen, maxDescLen, maxSeqLen ;
-  U64 idLen, descLen, seqLen ;
-  U64 idStart, descStart, seqStart, qualStart ;
-  bool isQual ;			/* if set then convert qualities by subtracting 33 (FASTQ) */
-  int qualThresh ;		/* used for binary representation of qualities */
+  bool  isWrite ;
+  U64   nSeq, totIdLen, totDescLen, totSeqLen, maxIdLen, maxDescLen, maxSeqLen ;
+  U64   idLen, descLen, seqLen ;
+  U64   idStart, descStart, seqStart, qualStart ;
+  bool  isQual ;       		/* if set then convert qualities by subtracting 33 (FASTQ) */
+  int   qualThresh ;		/* used for binary representation of qualities */
   /* below here private */
-  U64 bufSize ;
-  U64 nb ;			/* nb is how many characters left to read in the buffer */
-  U64 line, recStart ;		/* recStart is the offset for the current record */
-  int fd ;			/* file descriptor, if gzf is not set */
+  U64   bufSize ;
+  U64   nb ;			/* nb is how many characters left to read in the buffer */
+  U64   line, recStart ;	/* recStart is the offset for the current record */
+  int   fd ;			/* file descriptor, if gzf is not set */
   gzFile gzf ;
   char *buf, *b ;		/* b is current pointer in buf */
-  int *convert ;
+  int  *convert ;
   char *seqBuf, *qualBuf ;	/* used in modes BINARY, VGP, BAM */
-  char unpackConvert[4] ;	/* for unpacking */
-  U32 seqExpand[256] ;		/* lookup for unpacking sequence */
-  U64 qualExpand[256] ;		/* lookup for unpacking qual */
+  SeqPack *seqPack ;
   void *handle;			/* used for ONEseq, BAM */
 } SeqIO ;
 
@@ -63,12 +69,18 @@ void seqIOflush (SeqIO *si) ;	/* NB writes are buffered, so need this to ensure 
 void seqIOclose (SeqIO *si) ;	/* will flush file opened for writing */
 
 /* used for binary file writing/reading, but may be useful elsewhere */
-U64  sqioSeqPack (char *s, U8 *u, U64 len, int *convert) ; /* compress s into (len+3)/4 u */
-void sqioSeqUnpack (U8 *u, char *s, U64 len, SeqIO *si) ; /* uncompress (len+3)/4 u into s */
-U64  sqioQualPack (char *q, U8 *u, U64 len, int thresh) ; /* compress q into (len+7)/8 u */
-void sqioQualUnpack (U8 *u, char *q, U64 len, SeqIO *si) ; /* uncompress (len+7)/8 u into q */
 
-char* sqioRevComp (char *s, int len) ; /* reverse complements both index and text, not binary */
+SeqPack *seqPackCreate (int *convert, char unpackA, int qualThresh) ;
+#define seqPackDestroy(sp) free(sp)
+/* convert must map to 00/01/10/11: convert == 0 implies dna2index4conv, mapping 0123, acgt, ACGT 
+   unpackA: 0 maps 00/01/10/11 to 0123, a to acgt, A to ACGT and 1 to 4-bit 0001/0010/0100/1000 */
+U64  seqPackSeq (SeqPack *sp, char *s, U8 *u, U64 len) ; /* compress s into (len+3)/4 u */
+void seqUnpackSeq (SeqPack *sp, U8 *u, char *s, U64 len) ; /* uncompress (len+3)/4 u into s */
+U64  seqPackQual (SeqPack *sp, char *q, U8 *u, U64 len) ; /* compress q into (len+7)/8 u */
+void seqUnpackQual (SeqPack *sp, U8 *u, char *q, U64 len) ; /* uncompress (len+7)/8 u into q */
+
+char* seqRevComp (char *s, int len) ; /* reverse complements both index and text, not binary */
+U8*   seqRevComp2bit (U8 *u, int len) ; /* reverse complements binary */
 
 extern int dna2textConv[] ;
 extern int dna2textAmbigConv[] ;
@@ -84,7 +96,6 @@ extern int aa2indexConv[] ;
 static const char index2aa[] = "ACDEFGHIKLMNPQRSTVWYX*" ;
 extern int noConv[] ;
 extern int complementBase[] ; /* complements both index and text with ambiguity, not binary */
-
 
 #endif	/* SEQIO_DEFINED */
 

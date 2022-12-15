@@ -5,7 +5,7 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: Aug 17 12:22 2022 (rd109)
+ * Last edited: Oct  1 20:39 2022 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
@@ -92,7 +92,7 @@ char *fgetword (FILE *f)
 	  ++cp ;
       }
     else
-      { while ((*cp = getc (f)) && (isspace(*cp) || !isgraph(*cp)) && *cp != '\n' && !feof(f)) ;
+      { while (*cp != '\n' && !feof(f) && (isspace(*cp) || !isgraph(*cp))) *cp = getc (f) ;
 	ungetc (*cp, f) ;
 	break ;
       }
@@ -108,12 +108,12 @@ char *fgetword (FILE *f)
 FILE *fzopen(const char *path, const char *mode)
 {  /* very cool from https://stackoverflow.com/users/3306211/fernando-mut */
 #ifdef WITH_ZLIB
-  gzFile zfp;			/* fernando said *zfp - makes me worry.... */
+  gzFile zfp = 0 ;			/* fernando said *zfp - makes me worry.... */
 
-  /* try gzopen */
-  zfp = gzopen(path,mode);
-  if (zfp == NULL)
-    return fopen(path,mode);
+  if (strlen(path) > 3 && !strcmp(&path[strlen(path)-3], ".gz")) // only gzopen on .gz files
+    zfp = gzopen(path,mode) ; // try gzopen
+
+  if (!zfp) return fopen(path,mode);
 
   /* open file pointer */
   return funopen(zfp,
