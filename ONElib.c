@@ -7,7 +7,8 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Dec  4 23:57 2022 (rd109)
+ * Last edited: Dec 21 18:10 2022 (rd109)
+ * * Dec 20 21:29 2022 (rd109): changed DNA compression so can shift naturally
  * * Apr 23 00:31 2020 (rd109): global rename of VGP to ONE, Vgp to One, vgp to one
  * * Apr 20 11:27 2020 (rd109): added VgpSchema to make schema dynamic
  * * Dec 27 09:46 2019 (gene): style edits + compactify code
@@ -2228,9 +2229,14 @@ void oneWriteLine (OneFile *vf, char t, I64 listLen, void *listBuf)
     }
 }
 
-void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 listLen, U8 *dnaBuf)
-{ die ("not written yet") ;
-  oneWriteLine (vf, lineType, listLen, dnaBuf) ;
+int Uncompress_DNA(char *s, int len, char *t) ; // forward declaration for temp solution below
+
+void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 len, U8 *dnaBuf) // NB len in bp
+{ // temporary solution
+  char *s = new(len, char) ;
+  Uncompress_DNA ((char*)dnaBuf, len, s) ;
+  oneWriteLine (vf, lineType, len, s) ;
+  free (s) ;
 }
 
 void oneWriteComment (OneFile *vf, char *format, ...)
@@ -3158,16 +3164,20 @@ int Compress_DNA(int len, char *s, char *t)
 
   len -= 3;
   for (i = j = 0; i < len; i += 4)
-    t[j++] = (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2) | Number[s3[i]];
+    t[j++] = Number[s0[i]] | (Number[s1[i]] << 2) | (Number[s2[i]] << 4) | (Number[s3[i]] << 6) ;
+      // (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2) | Number[s3[i]];
   switch (i-len)
   { case 0:
-      t[j++] = (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2);
+      t[j++] = Number[s0[i]] | (Number[s1[i]] << 2) | (Number[s2[i]] << 4) ;
+	// (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2);
       break;
     case 1:
-      t[j++] = (Number[s0[i]] << 6) | (Number[s1[i]] << 4);
+      t[j++] = Number[s0[i]] | (Number[s1[i]] << 2) ;
+        // (Number[s0[i]] << 6) | (Number[s1[i]] << 4);
       break;
     case 2:
-      t[j++] = (Number[s0[i]] << 6);
+      t[j++] = Number[s0[i]] ;
+        // (Number[s0[i]] << 6);
       break;
     default:
       break;
@@ -3295,27 +3305,27 @@ int Uncompress_DNA(char *s, int len, char *t)
   tlen = len-3;
   for (i = 0; i < tlen; i += 4)
     { byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
-      t1[i] = Base[(byte >> 4) & 0x3];
-      t2[i] = Base[(byte >> 2) & 0x3];
-      t3[i] = Base[byte & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3]; // Base[(byte >> 4) & 0x3];
+      t2[i] = Base[(byte >> 4) & 0x3]; // Base[(byte >> 2) & 0x3];
+      t3[i] = Base[(byte >> 6) & 0x3]; // Base[byte & 0x3];
     }
 
   switch (i-tlen)
   { case 0:
       byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
-      t1[i] = Base[(byte >> 4) & 0x3];
-      t2[i] = Base[(byte >> 2) & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3]; // Base[(byte >> 4) & 0x3];
+      t2[i] = Base[(byte >> 4) & 0x3]; // Base[(byte >> 2) & 0x3];
       break;
     case 1:
       byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
-      t1[i] = Base[(byte >> 4) & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3]; // Base[(byte >> 4) & 0x3];
       break;
     case 2:
       byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
       break;
     default:
       break;

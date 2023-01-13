@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Dec 15 10:33 2022 (rd109)
+ * Last edited: Dec 25 02:33 2022 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -19,7 +19,7 @@
 
 typedef struct Seqstruct {
   int len ;
-  char* dna ;
+  U8* dna ;
 } Seq ;
 
 typedef struct {
@@ -37,17 +37,18 @@ typedef struct {
   Array seq ;			// of Seq
   Array link ;                  // of Link
   Array path ;                  // of Array of Path
-  DICT  *seqName ;
-  DICT  *pathName ;
+  DICT *seqName ;
+  DICT *pathName ;
   bool  isPerfect ;             // all links match exactly
-  bool  hasDNA ;                // true if the dna fields of seq[i] are filled
-  bool  isOwnDNA ;              // does this object own its DNA sequences (used in destroy)
+  char *buf ;			// for temporary operations,large enough for longest DNA sequence
+  int   bufSize ;		// size of buf
 } Gfa ;
 
 // have every sequence forwards and reverse complemented adjacent in gf->seq
 #define RC(si) ((si)%2 ? (si)-1 : (si)+1)
 
-static char *gfaSchemaText ;
+static SeqPack* SP ;		// create in main(), unpacking to acgt
+static char *gfaSchemaText ;	// at end of file
 
 Gfa *gfaCreate (int nSeq, int nLink)
 {
@@ -59,31 +60,18 @@ Gfa *gfaCreate (int nSeq, int nLink)
 
 void gfaDestroy (Gfa *gf)
 { int i ;
-  fprintf (stderr, "gfaDestroy\n") ;
+  for (i = arrayMax(gf->seq) ; i-- ;)
+    if (arrp(gf->seq,i,Seq)->dna) free (arrp(gf->seq,i,Seq)->dna) ;
   arrayDestroy (gf->seq) ;
-  fprintf (stderr, "gfaDestroy seq\n") ;
- #ifdef PROBLEM 
-  if (gf->hasDNA && gf->isOwnDNA)
-    for (i = arrayMax(gf->seq) ; i-- ;)
-      if (arrp(gf->seq,i,Seq)->dna)
-	{ if (!(i%20)) fprintf (stderr, "\ngfaDestroy dna") ;
-	  fprintf (stderr, "  %d %lx", i, (unsigned long) arrp(gf->seq,i,Seq)->dna) ;
-	  free (arrp(gf->seq,i,Seq)->dna) ;
-	}
-  fprintf (stderr, "gfaDestroy dna\n") ;
- #endif
   arrayDestroy (gf->link) ;
-  fprintf (stderr, "gfaDestroy link\n") ;
   if (gf->seqName) dictDestroy (gf->seqName) ;
-  fprintf (stderr, "gfaDestroy seqName\n") ;
   if (gf->pathName) dictDestroy (gf->pathName) ;
-  fprintf (stderr, "gfaDestroy pathName\n") ;
   if (gf->path)
     { for (i = arrayMax(gf->path) ; i-- ;) arrayDestroy(arrp(gf->path,i,Path)->as) ;
       arrayDestroy (gf->path) ;
     }
-  fprintf (stderr, "gfaDestroy path\n") ;
   if (gf->vf) oneFileClose (gf->vf) ; // will just free data as we set isWrite == false
+  if (gf->buf) free (gf->buf) ;
   free (gf) ;
 }
 
@@ -127,6 +115,11 @@ Gfa *readOneFiles (char *stem)
 	s->len = oneLen(vfs) ;
 	s = arrayp(gf->seq, arrayMax(gf->seq), Seq) ; // and make one for the reverse complement
 	s->len = oneLen(vfs) ;
+	if (s->len > gf->bufSize)
+	  { gf->bufSize = s->len ;
+	    if (gf->buf) free (gf->buf) ;
+	    gf->buf = new(gf->bufSize,char) ;
+	  }
       }
     else if (vfs->lineType == 'I') // assumes one per 'S' line - should be true 
       if (!dictAdd (gf->seqName, oneString(vfs), 0))
@@ -159,13 +152,11 @@ Gfa *readOneFiles (char *stem)
 	if (vfd->lineType == 'S')
 	  { Seq *s = arrp(gf->seq, 2*(vfd->object-1), Seq) ;
 	    assert (oneLen(vfd) == s->len) ;
-	    s->dna = new(s->len, char) ; memcpy (s->dna, oneString(vfd), s->len) ;
-	    s[1].dna = new(s->len, char) ; s[1].dna = seqRevComp(s->dna, s->len) ;
+	    s->dna = new((s->len+3)/4, U8) ; memcpy (s->dna, oneDNA2bit(vfd), (s->len+3)/4) ;
+	    s[1].dna = seqRevCompPacked (s->dna, 0, s->len) ;
 	  }
       printf ("read file %s with %d sequences\n", fileName, (int)vfd->object) ;
       oneFileClose (vfd) ;
-      gf->hasDNA = true ;
-      gf->isOwnDNA = true ;
     }
 
   strcpy (fileName+stemLen, ".1pth") ;
@@ -231,13 +222,13 @@ void writeOneFiles (Gfa *gf, char *stem)
   fprintf (stderr, "wrote %d objects to %s\n", (int)vfseg->object, fileName) ;
   oneFileClose (vfseg) ;
 
-  if (gf->hasDNA)
+  if (arrayMax(gf->seq) && arrp(gf->seq, 0, Seq)->dna)
     { strcpy (fileName+stemLen, ".1sgs") ;
       OneFile *vfseq = oneFileOpenWriteNew (fileName, schema, "sgs", true, 1) ;
       if (!vfseq) die ("can't open % to write", fileName) ;
       for (i = 0 ; i < arrayMax(gf->seq) ; i += 2) /* only write sequences in one direction */
 	{ Seq *s = arrp(gf->seq, i, Seq) ;
-	  oneWriteLine (vfseq, 'S', s->len, s->dna) ;
+	  oneWriteLineDNA2bit (vfseq, 'S', s->len, s->dna) ;
 	}
       fprintf (stderr, "wrote %d objects to %s\n", (int)vfseq->object, fileName) ;
       oneFileClose (vfseq) ;
@@ -322,10 +313,7 @@ Gfa *gfaParseSL (char *filename)
 	  word = fgetword (f) ; // sequence
 	  if (*word != '*')
 	    { seq->len = strlen (word) ;
-	      seq->dna = new (seq->len, char) ;
-	      memcpy (seq->dna, word, seq->len) ;
-	      gf->hasDNA = true ; // assume every seq will have DNA...
-	      gf->isOwnDNA = true ;
+	      seq->dna = seqPack (SP, word, 0, seq->len) ;
 	    }
 	  word = fgetword (f) ; // length
 	  if (strncmp (word, "LN:i:", 5)) die ("bad LN field line %d", line) ;
@@ -333,10 +321,15 @@ Gfa *gfaParseSL (char *filename)
 	    { if (atoi(&word[5]) != seq->len) die ("length error line %d", line) ; }
 	  else
 	    seq->len = atoi (&word[5]) ;
+	  if (seq->len > gf->bufSize)
+	    { gf->bufSize = seq->len ;
+	      if (gf->buf) free (gf->buf) ;
+	      gf->buf = new(gf->bufSize,char) ;
+	    }
 	  // now make the reverse complement as the (n+1)th Seq
 	  Seq *seq2 = arrayp(gf->seq, arrayMax(gf->seq), Seq) ;
 	  seq2->len = seq->len ;
-	  if (seq->dna) seq2->dna = seqRevComp (seq->dna, seq->len) ;
+	  if (seq->dna) seq2->dna = seqRevCompPacked (seq->dna, 0, seq->len) ;
 	  break ;
 	case 'L':
 	  word = fgetword (f) ; // seq1
@@ -452,12 +445,9 @@ W	NA12878	1	chr1	0	11	>s11<s12>s13
   for (i = 0 ; i < arrayMax(gf->seq) ; i += 2) /* only write sequences in one direction */
     { Seq *s = arrp(gf->seq, i, Seq) ;
       fprintf (f, "S\t%s", seqName (gf, i)) ;
-      if (s->dna) fprintf (f, "\t%*s\n", s->len, s->dna) ;
+      if (s->dna)
+	fprintf (f, "\t%*s\n", s->len, seqUnpack (SP, s->dna, gf->buf, 0, s->len)) ;
       else fprintf (f, "\t*\tLN:i:%d\n", s->len) ;
-      if (!(s->dna[s->len-1] == 'a' || s->dna[s->len-1] == 'c' ||
-	    s->dna[s->len-1] == 'g' || s->dna[s->len-1] == 't'))
-	fprintf (stderr, "bad dna end for seq %d len %d char %d = %c\n",
-		 i, s->len, s->dna[s->len-1], s->dna[s->len-1]) ;
     }
 
   for (i = 0 ; i < arrayMax(gf->link) ; ++i)
@@ -479,7 +469,7 @@ W	NA12878	1	chr1	0	11	>s11<s12>s13
 	if (p->end)   fprintf (f, "\tEN:i:%d", p->end) ;
 	fputc ('\n', f) ;
       }
-  
+
   fclose (f) ;
 }
 
@@ -518,9 +508,8 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
 	Seq *seq = arrp (gf->seq, index, Seq) ;
 	if (si->seqLen != seq->len)
 	  die ("length mismatch for %s seq %lld != gfa %lld", sqioId(si), si->seqLen, seq->len) ;
-	seq->dna = new (si->seqLen, char) ;
-	memcpy (seq->dna, sqioSeq(si), si->seqLen) ;
-	++seq ; seq->dna = seqRevComp (sqioSeq(si), si->seqLen) ;
+	seq->dna = seqPack (SP, sqioSeq(si), 0, si->seqLen) ;
+	++seq ; seq->dna = seqRevCompPacked (seq->dna, 0, si->seqLen) ;
 	total += si->seqLen ;
       }
     else
@@ -528,8 +517,6 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
   printf ("read %lld sequences total %lld from %s file %s\n",
 	  si->nSeq, total, seqIOtypeName[si->type], filename) ;
   seqIOclose (si) ;
-  gf->hasDNA = true ;
-  gf->isOwnDNA = true ;
 }
 
 static void linkReport (Array a, int i, int n) // previously used for debugging
@@ -543,21 +530,15 @@ static void linkReport (Array a, int i, int n) // previously used for debugging
 void linkRemoveBad (Gfa *gf)
 {
   int i, j ;
-
-  if (!gf->hasDNA)
-    { fprintf (stderr, "no DNA sequence loaded yet - aborting removeBadLinks\n") ;
-      return ;
-    }
   
   int nPerfect = 0, nImperfect = 0 ;
   Link *ul = arrp (gf->link, 0, Link) ;
   for (i = 0 ; i < arrayMax (gf->link) ; ++i)
     { Link *l = arrp (gf->link, i, Link) ;
       Seq *seq1 = arrp(gf->seq,l->s1,Seq) ;
-      char *s1 = arrp(gf->seq,l->s1,Seq)->dna + (seq1->len - l->overlap) ;
-      char *s2 = arrp(gf->seq,l->s2,Seq)->dna ;
-      for (j = 0 ; j < l->overlap ; ++j) { if (*s1++ != *s2++) break ; }
-      if (j == l->overlap) *ul++ = *l ; // pefect match
+      if (!seqMatchPacked (arrp(gf->seq,l->s1,Seq)->dna, seq1->len - l->overlap,
+			   arrp(gf->seq,l->s2,Seq)->dna, 0, l->overlap))
+	*ul++ = *l ; // perfect match
     }
 
   int newMax = ul - arrp(gf->link, 0, Link) ;
@@ -718,8 +699,6 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
   // next create gf2: seqs from the segments between cuts, and links and paths from the seqs
   Gfa *gf2 = gfaCreate (arrayMax(gf1->seq)+arrayMax(gf1->link), 8*arrayMax(gf1->link)) ;
   gf2->path = arrayCreate (arrayMax(gf1->seq), Path) ;
-  gf2->hasDNA = true ;
-  gf2->isOwnDNA = false ;
   
   Hash newSeqHash = hashCreate (2*arrayMax(gf1->link)) ;
   for (is = 0 ; is < nSeq ; ++is)
@@ -752,7 +731,13 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
 	    assert (sNew->len == c2->x - c1->x) ;
 	  else
 	    { sNew->len = c2->x - c1->x ;
-	      sNew->dna = &(sfs->dna[c1->sx]) ;
+	      if (sNew->len > gf2->bufSize)
+		{ gf2->bufSize = sNew->len ;
+		  if (gf2->buf) free (gf2->buf) ;
+		  gf2->buf = new(gf2->bufSize,char) ;
+		}
+	      char* tmp = seqUnpack (SP, sfs->dna, gf1->buf, c1->sx, sNew->len) ;
+	      sNew->dna = seqPack (SP, tmp, 0, sNew->len) ;
 	    }
 	  array(wi->as,arrayMax(wi->as),int) = index ;
 	  if (lastIndex >= 0)
@@ -774,26 +759,39 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
 
   // now check the paths
   for (is = 0 ; is < nSeq ; ++is)
-    { char *s = arrp(gf1->seq, is, Seq)->dna ;
-      if (!s) continue ;
+    { Seq *ps = arrp(gf1->seq, is, Seq) ; if (!ps->dna) continue ;
       Path *p = arrp(gf2->path, is, Path) ;
-      int i, j, n = 0 ;
       if (is == X || is == RC(X)) // debug section
 	printf ("is %d path %d segs %d start %d end\n",
 		is, arrayMax(p->as), p->start, p->end) ;
       assert (p->start == 0 && p->end == 0) ; // code below currently requires this
+      int i, j, n = 0 ;
+#ifdef OLD
+      char *s = seqUnpack (SP, ps->dna, gf1->buf, 0, ps->len) ;
       for (i = 0 ; i < arrayMax(p->as) ; ++i)
 	{ Seq *fs = arrp(gf2->seq, arr(p->as,i,int), Seq) ;
-	  char *t = fs->dna ;
 	  if (is == X || is == RC(X)) // debug section
 	    printf ("  seg %d len %d\n", arr(p->as,i,int), fs->len) ;
+	  char *t = seqUnpack (SP, fs->dna, gf2->buf, 0, fs->len) ;
 	  //	  printf ("seq %d pos %d starting cut %d len %d\n", is, n, i, fs->len) ;
 	  for (j = 0 ; j < fs->len ; ++j, ++n)
 	    if (*s++ != *t++)
 	      die ("path mismatch: seq %d len %d pos %d frag %d base %d",
 		   is, arrp(gf1->seq, is, Seq)->len, n, i, j) ;
 	}
+#else
+      for (i = 0 ; i < arrayMax(p->as) ; ++i)
+	{ Seq *fs = arrp(gf2->seq, arr(p->as,i,int), Seq) ;
+	  if (is == X || is == RC(X)) // debug section
+	    printf ("  seg %d len %d\n", arr(p->as,i,int), fs->len) ;
+	  if ((j = seqMatchPacked (ps->dna, n, fs->dna, 0, fs->len)))
+	    die ("path mismatch: seq %d len %d pos %d frag %d base %d",
+		 is, arrp(gf1->seq, is, Seq)->len, n+j, i, j) ;
+	  n += fs->len ;
+	}
+#endif
     }
+  
   printf ("all paths check out\n") ;
 
   return gf2 ;
@@ -823,6 +821,7 @@ int main (int argc, char *argv[])
   Gfa *gf = 0 ;
   
   timeUpdate (0) ;
+  SP = seqPackCreate ('a') ;
 
   argc-- ; ++argv ; // swallow the program name
   if (!argc) usage() ;
@@ -904,6 +903,7 @@ int main (int argc, char *argv[])
     }
 
   fprintf (stderr, "cleaning up\n") ;
+  seqPackDestroy (SP) ;
   if (gf) gfaDestroy (gf) ;
   fprintf (stderr, "total: ") ; timeTotal (stderr) ;
 }

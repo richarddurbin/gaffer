@@ -5,7 +5,7 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: Dec 15 10:33 2022 (rd109)
+ * Last edited: Dec 27 13:54 2022 (rd109)
  * * Dec 15 09:45 2022 (rd109): separated out 2bit packing/unpacking into SeqPack
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
@@ -85,7 +85,8 @@ SeqIO *seqIOopenRead (char *filename, int* convert, bool isQual)
       si->maxDescLen = *(U64*)si->b ; si->b += 8 ;
       si->maxSeqLen = *(U64*)si->b ; si->b += 8 ;
       si->nb -= 64 ;
-      si->seqPack = seqPackCreate (0, si->convert['A'], si->qualThresh) ;
+      si->seqPack = seqPackCreate (si->convert['a']) ;
+      si->qualPack = qualPackCreate (si->qualThresh) ;
       si->seqBuf = new0 (si->maxSeqLen+1, char) ;
       if (si->isQual) si->qualBuf = new0 (si->maxSeqLen+1, char) ;
       { U64 maxBufSize = 3*sizeof(int) + 5 + si->maxIdLen + si->maxDescLen + si->maxSeqLen / 4 ;
@@ -281,10 +282,10 @@ bool seqIOread (SeqIO *si)
       si->idStart = si->b - si->buf ;
       si->descStart = si->idStart + si->idLen + 1 ;
       si->seqStart = si->descStart + si->descLen + 1 ;
-      seqUnpackSeq (si->seqPack, (U8*)(si->buf+si->seqStart), si->seqBuf, si->seqLen) ;
+      seqUnpack (si->seqPack, (U8*)(si->buf+si->seqStart), si->seqBuf, 0, si->seqLen) ;
       if (si->isQual)
 	{ si->qualStart = si->seqStart + (si->seqLen + 3) / 4 ;
-	  seqUnpackQual (si->seqPack, (U8*)(si->buf+si->qualStart), si->qualBuf, si->seqLen) ;
+	  qualUnpack (si->qualPack, (U8*)(si->buf+si->qualStart), si->qualBuf, si->seqLen) ;
 	}
       ++si->line ;
       si->b += nBytes ; si->nb -= nBytes ;
@@ -433,6 +434,9 @@ SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThr
 
   if (si->type == BINARY)
     { si->b += 64 ; si->nb -= 64 ; /* make space for header - written on file close */
+      if (!si->convert) si->convert = dna2textConv ;
+      si->seqPack = seqPackCreate (si->convert['a']) ;
+      si->qualPack = qualPackCreate (si->qualThresh) ;
     }
 
   return si ;
@@ -542,97 +546,19 @@ void seqIOwrite (SeqIO *si, char *id, char *desc, U64 seqLen, char *seq, char *q
       *ib++ = si->idLen ; *ib++ = si->descLen ; *ib++ = seqLen ;
       if (si->idLen) { strcpy (si->b, id) ; si->b += si->idLen ; } *si->b++ = 0 ;
       if (si->descLen) { strcpy (si->b, desc) ; si->b += si->descLen ; } *si->b++ = 0 ;
-      si->b += seqPackSeq (si->seqPack, seq, (U8*)si->b, si->seqLen) ;
-      if (si->isQual) si->b += seqPackQual (si->seqPack, qual, (U8*)si->b, si->seqLen) ;
+      seqPack (si->seqPack, seq, (U8*)si->b, si->seqLen) ; si->b += (si->seqLen + 3)/4 ;
+      if (si->isQual)
+	{ qualPack (si->qualPack, qual, (U8*)si->b, si->seqLen) ;
+	  si->b += (si->seqLen + 7)/8 ;
+	}
       si->b += pad ;
     }
   si->nb -= len ;
 }
 
-/********** some routines to pack sequence and qualities for binary representation ***********/
-
-SeqPack *seqPackCreate (int *convert, char unpackA, int qualThresh)
-{
-  SeqPack *sp = new (1, SeqPack) ;
-  if (qualThresh < 0 || qualThresh >= 128)
-    die ("seqPackCreate: qualThresh %d is out of range 0..127", qualThresh) ;
-  sp->qualThresh = qualThresh ;
-  if (convert) sp->convert = convert ; else sp->convert = dna2index4Conv ;
-  switch (unpackA)
-    {
-    case '0': sp->unconv[0] = 0; sp->unconv[1] = 1; sp->unconv[2] = 2; sp->unconv[3] = 3; break ;
-    case '1': sp->unconv[0] = 1; sp->unconv[1] = 2; sp->unconv[2] = 4; sp->unconv[3] = 8; break ;
-    case 'a': strcpy (sp->unconv, "acgt") ; break ;
-    case 'A': strcpy (sp->unconv, "ACGT") ; break ;
-    default: 
-      die ("seqPackCreate: unrecognised unpackA character %d = %c - must be one of a, A, 0, 1",
-	   unpackA, unpackA) ;
-    }
-  { int i, j ;
-    for (i = 0 ; i < 256 ; ++i)
-      { U8 u = i ;
-	char *s = (char*)&sp->seqExpand[i] ;
-	char *q = (char*)&sp->qualExpand[i] ;
-	for (j = 4 ; j-- ; ) { *s++ = sp->unconv[u & 0x03] ; u >>= 2 ; }
-	for (j = 8 ; j-- ; ) { *q++ = (u & 0x01) ? qualThresh : 0 ; u >>= 1 ; }
-      }
-  }
-  return sp ;
-}
-
-U64 seqPackSeq (SeqPack *sp, char *s, U8 *u, U64 len) /* compress s into (len+3)/4 u */
-{
-  U8 *u0 = u ;
-  int i ;
-  while (len >= 4)
-    { for (i = 0 ; i < 4 ; ++i) *u = (*u << 2) | sp->convert[(int)*s++] ;
-      len -= 4 ; ++u ;
-    }
-  if (len)
-    { *u = 0 ; for (i = 0 ; i < len ; ++i) *u = (*u << 2) | sp->convert[(int)*s++] ;
-      ++u ;
-    }
-  return (u-u0) ;
-}
-
-void seqUnpackSeq (SeqPack *sp, U8 *u, char *s, U64 len) /* uncompress (len+3)/4 u into s */
-{
-  int i ;
-  while (len >= 4)
-    { *(U32*)s = sp->seqExpand[*u] ;
-      ++u ; s += 4 ; len -= 4 ;
-    }
-  if (len) for (i = len ; --i ; ) { *s++ = sp->unconv[*u & 0x3] ; *u >>= 2 ; }
-}
-
-U64 seqPackQual (SeqPack *sp, char *q, U8 *u, U64 len) /* compress q into (len+7)/8 u */
-{
-  U8 *u0 = u ;
-  int i ;
-  while (len >= 8)
-    { for (i = 0 ; i < 8 ; ++i) { if (*q++ >= sp->qualThresh) *u |= 1 ; *u <<= 1 ; }
-      len -= 8 ; ++u ;
-    }
-  if (len)
-    { *u = 0 ; for (i = 0 ; i < len ; ++i) { if (*q++ >= sp->qualThresh) *u |= 1 ; *u <<= 1 ; }
-      ++u ;
-    }
-  return (u-u0) ;
-}
-
-void seqUnpackQual (SeqPack *sp, U8 *u, char *q, U64 len) /* uncompress (len+7)/8 u into q */
-{
-  int i ;
-  while (len >= 8)
-    { *(U64*)q = sp->qualExpand[*u] ;
-      ++u ; q += 8 ; len -= 8 ;
-    }
-  if (len) for (i = len ; --i ; ) { q[i] = (*u & 0x1) ? sp->qualThresh : 0 ; *u >>= 1 ; }
-}
-
 /********* reverse complement sequences ********/
 
-char* seqRevComp (char* s, int len) // index and text (including ambig) 
+char* seqRevComp (char* s, U64 len) // index and text (including ambig) 
 {
   char *r = new(len,char) ;
   r += len ;
@@ -640,26 +566,107 @@ char* seqRevComp (char* s, int len) // index and text (including ambig)
   return r ;
 }
 
-U8 *seqRevComp2bit (U8* u, int len)
+/********** some routines to pack sequence and qualities for binary representation ***********/
+
+SeqPack *seqPackCreate (char unpackA)
 {
+  SeqPack *sp = new (1, SeqPack) ;
+  switch (unpackA)
+    {
+    case 0: sp->unconv[0] = 0; sp->unconv[1] = 1; sp->unconv[2] = 2; sp->unconv[3] = 3; break ;
+    case 1: sp->unconv[0] = 1; sp->unconv[1] = 2; sp->unconv[2] = 4; sp->unconv[3] = 8; break ;
+    case 'a': strcpy (sp->unconv, "acgt") ; break ;
+    case 'A': strcpy (sp->unconv, "ACGT") ; break ;
+    default: 
+      die ("seqPackCreate: unrecognised unpackA character %d = %c - must be one of a, A, 0, 1",
+	   unpackA, unpackA) ;
+    }
+  int i, j ;
+  for (i = 0 ; i < 256 ; ++i)
+    { U8 u ;
+      char *s = (char*)&sp->seqExpand[i] ;
+      u = i ; for (j = 0 ; j < 4 ; ++j) { s[j] = sp->unconv[u & 0x03] ; u >>= 2 ; }
+    }
+  return sp ;
+}
+
+static U8 packConv[] = {    /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are maintained */
+   0,   1,   2,   3,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
+   0,   0,   0,   1,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   3,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   1,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   3,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0
+} ;
+
+U8* seqPack (SeqPack *sp, char *s, U8 *u, U64 len) /* compress s into (len+3)/4 u */
+{
+  if (!u) u = new((len+3)/4,U8) ;
+  U8 *u0 = u ;
   int i ;
+  while (len >= 4)
+    { *u++ = packConv[s[0]] | (packConv[s[1]] << 2) | (packConv[s[2]] << 4) | (packConv[s[3]] << 6) ;
+      len -= 4 ; s += 4 ;
+    }
+  switch (len)
+    {
+    case 3: *u++ = packConv[s[0]] | (packConv[s[1]] << 2) | (packConv[s[2]] << 4) ; break ;
+    case 2: *u++ = packConv[s[0]] | (packConv[s[1]] << 2) ; break ;
+    case 1: *u++ = packConv[s[0]] ; break ;
+    case 0: break ;
+    }
+  return u0 ;
+}
+
+char* seqUnpack (SeqPack *sp, U8 *u, char *s, U64 i, U64 len)
+{
+  if (!s) s = new(len,char) ;
+  char *s0 = s ;
+  u += (i >> 2) ; i = (i & 3) ; // first offset and go to byte (U8) boundary
+  if (i)
+    { U8 uu = *u >> 2*i ;
+      while ((i++ < 4) && len) { *s++ = sp->unconv[uu & 3] ; uu >>= 2 ; len-- ; }
+      ++u ;
+    }
+  if (len)
+    { while (len >= 4)
+	{ *(U32*)s = sp->seqExpand[*u] ;
+	  ++u ; s += 4 ; len -= 4 ;
+	}
+      switch (len) // note fall through
+	{
+	case 3: s[2] = sp->unconv[(*u >> 4) & 3] ;
+	case 2: s[1] = sp->unconv[(*u >> 2) & 3] ;
+	case 1: s[0] = sp->unconv[*u & 3] ; 
+	case 0: break ;
+	}
+    }
+  return s0 ;
+}
+
+U8 *seqRevCompPacked (U8* u, U8 *rc, U64 len)
+{
+  if (!rc) rc = new(len,U8) ;
+  U64 i ;
   static U8 rcByte[256] ;
   static bool isFirst = true ;
   if (isFirst)
     { for (i = 0 ; i < 256 ; ++i)
-	rcByte[~i] = ((i & 3) << 6) | ((i & 12) << 2) | ((i & 48) >> 2) | ((i & 192) >> 6) ;
+	rcByte[255-i] = ((i & 3) << 6) | ((i & 12) << 2) | ((i & 48) >> 2) | ((i & 192) >> 6) ;
       isFirst = false ;
     }
 
-  int blen = (len+3)/4 ;
-  U8* rc = new((len+3)/4,U8) ;
+  U64 blen = (len+3)/4 ;
+  if (!rc) rc = new((len+3)/4,U8) ;
   for (i = blen ; i-- ;) rc[i] = rcByte[*u++] ;
   switch (len % 4) // now shift back
     {
     case 0:
       break ;
     case 1:
-      for (i = 0 ; i < blen-1 ; ++i) rc[i] = (rc[i] >> 6) | (rc[i+1] << 6) ;
+      for (i = 0 ; i < blen-1 ; ++i) rc[i] = (rc[i] >> 6) | (rc[i+1] << 2) ;
       rc[blen-1] = rc[blen-1] >> 6 ;
       break ;
     case 2:
@@ -667,12 +674,160 @@ U8 *seqRevComp2bit (U8* u, int len)
       rc[blen-1] = rc[blen-1] >> 4 ;
       break ;
     case 3:
-      for (i = 0 ; i < blen-1 ; ++i) rc[i] = (rc[i] >> 2) | (rc[i+1] << 2) ;
+      for (i = 0 ; i < blen-1 ; ++i) rc[i] = (rc[i] >> 2) | (rc[i+1] << 6) ;
       rc[blen-1] = rc[blen-1] >> 2 ;
       break ;
     }
   
   return rc ;
+}
+
+U64 seqMatchPacked2 (U8 *a, U64 ia, U8 *b, U64 ib, U64 len) /* returns 0 or distance to mismatch */
+{
+  static SeqPack *sp = 0 ;
+  if (sp == 0) sp = seqPackCreate ('a') ;
+  U64 i = 0 ;
+  char *sa = seqUnpack (sp, a, 0, ia, len), *sb = seqUnpack (sp, b, 0, ib, len) ;
+  while (i < len && sa[i] == sb[i]) i++ ;
+  free (sa) ; free (sb) ;
+  if (i == len) return 0 ; else return i+1 ;
+}
+
+U64 seqMatchPacked (U8 *a, U64 ia, U8 *b, U64 ib, U64 len)
+{
+  static SeqPack *sp ;
+  static U64 mask[33] ; // need 1 to 32
+  static bool isFirst = true ;
+  int i, chunk = 0 ;
+  if (isFirst) // initialise statics
+    { sp = seqPackCreate ('a') ;
+      union { U64 u ; U8 b[8] ; } z ;
+      z.u = 0 ;
+      for (i = 0 ; i < 8 ; i++)
+	{ z.b[i] = 0x03 ; mask[4*i+1] = z.u ;
+	  z.b[i] = 0x0f ; mask[4*i+2] = z.u ;
+	  z.b[i] = 0x3f ; mask[4*i+3] = z.u ;
+	  z.b[i] = 0xff ; mask[4*i+4] = z.u ;
+	}
+      isFirst = false ;
+    }
+
+  // advance sequences to the 64-bit words in which the start points begin
+  // recall that a U64 holds 32 bases, (z & 0x1f) == z % 32, and (z >> 5) == z / 32
+  U64 *ua = &(((U64*)a)[ia>>5]), *ub = &(((U64*)b)[ib>>5]) ;
+  ia &= 0x1f ; ib &= 0x1f ;
+
+  // debug
+  int iia = ia, iib = ib, ilen = len ;
+  char sa[16], sb[16] ; sa[15] = sb[15] = 0 ;
+  int l = (len < 15) ? len : 15 ;
+  a = (U8*) ua ; b = (U8*) ub ;
+  seqUnpack (sp, a, sa, ia, l) ; seqUnpack (sp, b, sb, ib, l) ;
+  U64 d2 = seqMatchPacked2 (a, ia, b, ib, len) ;
+  char ca, cb ; if (d2) { seqUnpack (sp, a, &ca, d2-1, 1) ; seqUnpack (sp, b, &cb, d2-1, 1) ; }
+
+  U64 uua = 0, uub = 0, d = 0 ; // distance of match
+  if (len > 32) // can work in 64-bit words
+    { if (ia == ib)
+	{ if (((*ua++ >> (2*ia)) & mask[32-ia]) != ((*ub++ >> (2*ib)) & mask[32-ib]))
+	    { d = 32 - ia ;
+	      goto end ;
+	    }
+	  d += (32 - ia) ; len -= (32 - ia) ;
+	  while (len > 32)
+	    { d += 32 ; len -= 32 ;
+	      uua = *ua ; uub = *ub ; // DEBUG
+	      if ((*ua++ & mask[32]) != (*ub++ & mask[32])) goto end ;
+	    }
+	}
+      else
+	{ if (ib < ia) { U64 *t = ua ; ua = ub ; ub = t ; U64 it = ia ; ia = ib ; ib = it ; }
+	  uua = *ua >> (2*ia) ; uub = *ub >> (2*ib) ;
+	  while (len > 32)
+	    { chunk = 32-ib ; d += chunk ; len -= chunk ;
+	      if ((uua & mask[chunk]) != (uub & mask[chunk])) goto end ;
+	      uua >>= 2*chunk ; ia += chunk ; uub = *++ub ; ib = 0 ;
+	      chunk = 32-ia ; d += chunk ; len -= chunk ;
+	      if ((uua & mask[chunk]) != (uub & mask[chunk])) goto end ;
+	      uub >>= 2*chunk ; ib += chunk ; uua = *++ua ; ia = 0 ; 
+	    }
+	}
+    }
+  
+  // final bases which may not fit into a 32 bit word
+  char abuf[33], bbuf[33] ;
+  seqUnpack (sp, (U8*)ua, abuf, ia, len) ; seqUnpack (sp, (U8*)ub, bbuf, ib, len) ;
+  for (i = 0 ; i < len ; ++i)
+    { ++d ;
+      if (abuf[i] != bbuf[i])
+	{ abuf[len] = bbuf[len] = 0 ;
+	  if (d2 != d)
+	    printf ("SEQMATCH ia %d ib %d len %d d %lld d2 %lld abuf %s bbuf %s i %d\n",
+		    iia, iib, ilen, d, d2, abuf, bbuf, i) ;
+	  return d ;
+	}
+    }
+  if (d2)
+    printf ("SEQMATCH ia %d ib %d len %d d %lld d2 %lld abuf %s bbuf %s i %d ca %c cb %c\n",
+	    iia, iib, ilen, d, d2, abuf, bbuf, i, ca, cb) ;
+  d = 0 ; // if we get here then they all match
+
+ end:
+  if ((!d2 && d) || (d != d2 && d+32 < d2))
+    { printf ("seqMatch ia %d ib %d len %d d %lld d2 %lld a %s b %s\n",
+	      iia, iib, ilen, d, d2, sa, sb) ;
+      printf ("   local d %lld  uua %0llx uub %0llx chunk %d mask[chunk] %0llx\n",
+	      d, uua, uub, chunk, mask[chunk]) ;
+    }
+  return d ;
+}
+
+/************ QualPack package ***************/
+
+QualPack *qualPackCreate (int qualThresh)
+{
+  QualPack *qp = new (1, QualPack) ;
+  if (qualThresh < 0 || qualThresh >= 128)
+    die ("seqPackCreate: qualThresh %d is out of range 0..127", qualThresh) ;
+  qp->qualThresh = qualThresh ;
+
+  int i, j ;
+  for (i = 0 ; i < 256 ; ++i)
+    { U8 u ;
+      char *q = (char*)&qp->qualExpand[i] ;
+      u = i ; for (j = 0 ; j < 8  ; ++j) { q[j] = (u & 0x01) ? qualThresh : 0 ; u >>= 1 ; }
+    }
+
+  return qp ;
+}
+
+U8* qualPack (QualPack *sp, char *q, U8 *u, U64 len) /* compress q into (len+7)/8 u */
+{
+  if (!u) u = new((len+7)/8,U8) ;
+  U8 *u0 = u ;
+  int i ;
+  while (len >= 8)
+    { *u = 0 ; for (i = 0 ; i < 8 ; ++i) { if (*q++ >= sp->qualThresh) *u |= (1 << i) ; }
+      len -= 8 ; ++u ;
+    }
+  if (len)
+    { *u = 0 ; for (i = 0 ; i < len ; ++i) { if (*q++ >= sp->qualThresh) *u |= (1 << i) ; }
+      ++u ;
+    }
+  return u0 ;
+}
+
+char* qualUnpack (QualPack *sp, U8 *u, char *q, U64 len) /* uncompress (len+7)/8 u into q */
+{
+  if (!q) q = new(len,char) ;
+  char *q0 = q ;
+  int i ;
+  while (len >= 8)
+    { *(U64*)q = sp->qualExpand[*u] ;
+      ++u ; q += 8 ; len -= 8 ;
+    }
+  if (len) for (i = len ; --i ; ) { q[i] = (*u & 0x1) ? sp->qualThresh : 0 ; *u >>= 1 ; }
+  return q0 ;
 }
 
 /*********** standard conversion tables **************/
@@ -695,8 +850,8 @@ int dna2textAmbigConv[] = {
   -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2, 
   -2, 'A', 'B', 'C', 'D',  -2,  -2, 'G', 'H',  -2,  -2, 'K',  -2, 'M', 'N',  -2,
   -2,  -2, 'R', 'S', 'T',  -2, 'V', 'W',  -2, 'Y',  -2,  -2,  -2,  -2,  -2,  -2,
-  -2, 'A', 'B', 'C', 'D',  -2,  -2, 'G', 'H',  -2,  -2, 'K',  -2, 'M', 'N',  -2,
-  -2,  -2, 'R', 'S', 'T',  -2, 'V', 'W',  -2, 'Y',  -2,  -2,  -2,  -2,  -2,  -2,
+  -2, 'a', 'b', 'c', 'd',  -2,  -2, 'g', 'h',  -2,  -2, 'k',  -2, 'm', 'n',  -2,
+  -2,  -2, 'r', 's', 't',  -2, 'v', 'w',  -2, 'y',  -2,  -2,  -2,  -2,  -2,  -2,
 } ;
 
 int dna2textAmbig2NConv[] = {
@@ -706,8 +861,8 @@ int dna2textAmbig2NConv[] = {
   -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2,  -2, 
   -2, 'A', 'N', 'C', 'N',  -2,  -2, 'G', 'N',  -2,  -2, 'N',  -2, 'N', 'N',  -2,
   -2,  -2, 'N', 'N', 'T',  -2, 'N', 'N',  -2, 'N',  -2,  -2,  -2,  -2,  -2,  -2,
-  -2, 'A', 'N', 'C', 'N',  -2,  -2, 'G', 'N',  -2,  -2, 'N',  -2, 'N', 'N',  -2,
-  -2,  -2, 'N', 'N', 'T',  -2, 'N', 'N',  -2, 'N',  -2,  -2,  -2,  -2,  -2,  -2,
+  -2, 'a', 'n', 'c', 'n',  -2,  -2, 'g', 'n',  -2,  -2, 'n',  -2, 'n', 'n',  -2,
+  -2,  -2, 'n', 'n', 't',  -2, 'n', 'n',  -2, 'n',  -2,  -2,  -2,  -2,  -2,  -2,
 } ;
 
 int dna2indexConv[] = {
