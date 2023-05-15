@@ -7,8 +7,8 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Dec 21 18:10 2022 (rd109)
- * * Dec 20 21:29 2022 (rd109): changed DNA compression so can shift naturally
+ * Last edited: May 15 13:57 2023 (rd109)
+ * * Dec 20 21:29 2022 (rd109): changed DNA compression to little-endian: natural on Intel, Apple
  * * Apr 23 00:31 2020 (rd109): global rename of VGP to ONE, Vgp to One, vgp to one
  * * Apr 20 11:27 2020 (rd109): added VgpSchema to make schema dynamic
  * * Dec 27 09:46 2019 (gene): style edits + compactify code
@@ -16,6 +16,10 @@
  * * Created: Thu Feb 21 22:40:28 2019 (rd109)
  *
  ****************************************************************************************/
+
+#ifdef LINUX
+#define _GNU_SOURCE  // needed for vasprintf() on Linux
+#endif
 
 #include <sys/errno.h>
 #include <sys/types.h>
@@ -29,6 +33,7 @@
 #include <unistd.h>
 #include <sys/uio.h>
 #include <math.h>
+
 
 #ifdef DEBUG
 #include <assert.h>
@@ -142,7 +147,7 @@ static void schemaAddInfoFromArray (OneSchema *vs, int n, OneType *a, char t, ch
     { if (vs->objectType) die ("second object type in schema for filetype %s", vs->primary) ;
       vs->objectType = t ;
     }
-  else if (*vs->primary && (type != 'D' || !isalpha(t))) // allow non-alphabetic lines in header
+  else if (vs->primary && (type != 'D' || !isalpha(t))) // allow non-alphabetic lines in header
     die ("non-alphabetic linetype %c (ascii %d) in schema for filetype %s",t,t,vs->primary) ;
 
   if (n > vs->nFieldMax) vs->nFieldMax = n ;
@@ -181,8 +186,8 @@ static void schemaAddInfoFromLine (OneSchema *vs, OneFile *vf, char t, char type
   static OneType a[32] ;
   int            i ;
   OneType        j ;
-  int            n = oneLen(vf) ;
   char          *s = oneString(vf) ;
+  int            n = oneLen(vf) ;
   
   if (n > 32)
     die ("line specification %d fields too long - need to recompile", n) ;
@@ -203,7 +208,8 @@ static void schemaAddInfoFromLine (OneSchema *vs, OneFile *vf, char t, char type
 }
 
 static OneSchema *schemaLoadRecord (OneSchema *vs, OneFile *vf)
-{
+{ char *s;
+
   // parse a schema specfication line from vf and add into vs
   // return value is vs unless a new primary type is declared, in which case vs->nxt
 
@@ -212,17 +218,19 @@ static OneSchema *schemaLoadRecord (OneSchema *vs, OneFile *vf)
     case '.':  // ignore - blank or comment line in schema file
       break ;
     case 'P':
-      if (*vs->primary && !vs->objectType)
+      if (vs->primary && !vs->objectType)
 	die ("schema: file type %s has no object type", vs->primary) ;
-      if (oneLen(vf) != 3) die ("schema: primary name %s is not 3 letters", oneString(vf)) ;
+      if (oneLen(vf) == 0) die ("schema: primary name must have at least one letter") ;
       OneSchema *vsNxt = new0 (1, OneSchema) ;
       vs->nxt = vsNxt ;
       vs = vsNxt ;
-      strcpy (vs->primary, oneString(vf)) ;
+      s = oneString(vf);
+      vs->primary = new0 (oneLen(vf)+1, char) ; // RD 230512 made new0() not new()
+      strcpy (vs->primary, s) ;
       vs->nFieldMax = 4 ; // needed for header
       break ;
     case 'S':
-      if (oneLen(vf) != 3) die ("schema: secondary name %s is not 3 letters", oneString(vf)) ;
+      if (oneLen(vf) == 0) die ("schema: secondary name must have at least one letter") ;
       if (vs->nSecondary)
 	{ char **temp = vs->secondary ;
 	  vs->secondary = new (vs->nSecondary+1, char*) ;
@@ -231,8 +239,9 @@ static OneSchema *schemaLoadRecord (OneSchema *vs, OneFile *vf)
 	}
       else
 	vs->secondary = new (1, char*) ;
-      vs->secondary[vs->nSecondary] = new0 (4, char) ;
-      strcpy (vs->secondary[vs->nSecondary++], oneString(vf)) ;
+      s = oneString(vf);
+      vs->secondary[vs->nSecondary] = new0 (oneLen(vf)+1, char) ;
+      strcpy (vs->secondary[vs->nSecondary++], s) ;
       break ;
     case 'G': // group type
     case 'O': // object type
@@ -252,6 +261,8 @@ OneSchema *oneSchemaCreateFromFile (char *filename)
 {
   FILE *fs = fopen (filename, "r") ;
   if (!fs) return 0 ;
+  fclose(fs);
+
   OneSchema *vs = new0 (1, OneSchema) ;
 
   OneFile *vf = new0 (1, OneFile) ;      // shell object to support bootstrap
@@ -382,12 +393,12 @@ OneSchema *oneSchemaCreateFromText (char *text) // write to temp file and call C
 static OneSchema *oneSchemaCreateDynamic (char *fileType, char *subType)
 { // this is clean, but it seems a bit wasteful to create a temp file
   char text[32] ;
-  assert (fileType && strlen(fileType) == 3) ;
-  assert (!subType || !*subType || strlen(subType) == 3) ;
-  if (subType && *subType)
-    sprintf (text, "P 3 %s\nS 3 %s\n", fileType, subType) ;
+  assert (fileType && strlen(fileType) > 0) ;
+  assert (!subType || strlen(subType) > 0) ;
+  if (subType)
+    sprintf (text, "P %ld %s\nS %ld %s\n", strlen(fileType),fileType, strlen(subType), subType) ;
   else
-    sprintf (text, "P 3 %s\n", fileType) ;
+    sprintf (text, "P %ld %s\n", strlen(fileType), fileType) ;
   OneSchema *vs = oneSchemaCreateFromText (text) ;
   return vs ;
 }
@@ -400,6 +411,7 @@ void oneSchemaDestroy (OneSchema *vs)
 	{ for (i = 0 ; i < vs->nSecondary ; ++i) free (vs->secondary[i]) ;
 	  free (vs->secondary) ;
 	}
+      free(vs->primary);
       OneSchema *t = vs->nxt ;
       free (vs) ;
       vs = t ;
@@ -458,8 +470,12 @@ static OneFile *oneFileCreate (OneSchema **vsp, char *type)
   // set other information
   vf->objectType = vs->objectType ;
   vf->groupType = vs->groupType ;
+  vf->fileType  = new (strlen(vs->primary)+1, char);
   strcpy (vf->fileType, vs->primary) ;
-  if (secondary) strcpy (vf->subType, secondary) ;
+  if (secondary)
+    { vf->subType  = new (strlen(secondary)+1, char);
+      strcpy (vf->subType, secondary) ;
+    }
   vf->nFieldMax = vs->nFieldMax ;
   vf->field = new (vf->nFieldMax, OneField) ;
 
@@ -547,6 +563,9 @@ static void oneFileDestroy (OneFile *vf)
 	  { OneHeaderText *nxt = t->nxt ; free (t) ; t = nxt ; }
 	}
     }
+
+  free(vf->fileType);
+  free(vf->subType);
 
   free (vf) ;
 }
@@ -1140,14 +1159,12 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
   OneSchema *vs0 = vs ;
   bool       isDynamic = false ; // if we are making the schema from the header
 
-  assert (fileType == NULL || strlen(fileType) == 3) ;
-
-  // fprintf (stderr, "entering fileOpenRead vs %lx type %s path %s\n", vs, fileType, path) ;
+  assert (fileType == NULL || strlen(fileType) > 0) ;
 
   // first open the file, read first header line if it exists, and create the OneFile object
   
   { FILE *f ;
-    char  name[4] ;
+    char *name ;
     int   curLine = 0 ;
     U8    c ;
 
@@ -1173,8 +1190,9 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
       
 	if (fscanf (f, " %d", &slen) != 1)
 	  OPEN_ERROR1("line 1: failed to read type name length") ;
-	if (slen != 3)
-	  OPEN_ERROR1("line 1: type name is not three letters") ;
+	if (slen == 0)
+	  OPEN_ERROR1("line 1: type name is empty string") ;
+        name = new0 (slen+1, char);
 	if (fscanf (f, " %s %d %d", name, &major, &minor) != 3)
 	  OPEN_ERROR1("line 1: failed to read remainder of line") ;
 	while (getc(f) != '\n')
@@ -1190,6 +1208,7 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
       { ungetc (c, f) ;
 	if (!fileType)
 	  OPEN_ERROR1("attempting to open a file without the type being defined") ;
+        name = new0 (strlen(fileType)+1, char);
 	strcpy (name, fileType) ;
       }
 
@@ -1205,6 +1224,8 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
       { oneFileDestroy (vf) ;
 	OPEN_ERROR3("fileType mismatch file %s != requested %s", vf->fileType, fileType) ;
       }
+
+    free(name);
     
     vf->f = f;
     vf->line = curLine;
@@ -1239,14 +1260,19 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
 	  if (oneLen(vf) != 3)
 	    parseError (vf, "secondary subType must have length 3") ;
 	  if (isDynamic)
-	    strcpy (vf->subType, oneString(vf)) ;
+            { char *s = oneString(vf);
+              vf->subType = new (oneLen(vf)+1, char);
+	      strcpy (vf->subType, s) ;
+            }
 	  else
 	    { char *sub = oneString(vf) ;
 	      int i ;
 	      for (i = 0 ; i < vs->nSecondary ; ++i)
 		if (!strcmp (sub, vs->secondary[i])) break ;
 	      if (i < vs->nSecondary)
-		strcpy (vf->subType, sub) ;
+                { vf->subType = new (strlen(sub)+1, char);
+		  strcpy (vf->subType, sub) ;
+                }
 	      else
 		parseError (vf, "subtype %s not compatible with primary type %s",
 			    sub, vf->fileType);
@@ -1481,7 +1507,12 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
 	  v->info['*'] = vf->info['*'];
 
 	  v->isIndexIn = vf->isIndexIn;
-	  strcpy (v->subType, vf->subType) ;
+          if (vf->subType != NULL)
+            { v->subType = new (strlen(vf->subType)+1, char);
+	      strcpy (v->subType, vf->subType) ;
+            }
+          else
+            v->subType = NULL;
 	}
     } // end of parallel threads block
 
@@ -1636,9 +1667,9 @@ OneFile *oneFileOpenWriteFrom (const char *path, OneFile *vfIn, bool isBinary, i
   for (i = 'A' ; i <= 'z' ; ++i)
     if (isalpha(i) && vfIn->info[i] && i != vfIn->groupType && i != vfIn->objectType)
       infoCopy (vs, vfIn, (char)i, 'D') ;
-      
+
   // use it to open the file
-  OneFile *vf = oneFileOpenWriteNew (path, vs0, *vfIn->subType ? vfIn->subType : vfIn->fileType,
+  OneFile *vf = oneFileOpenWriteNew (path, vs0, vfIn->subType ? vfIn->subType : vfIn->fileType,
 				     isBinary, nthreads);
   oneSchemaDestroy (vs0) ;
   if (!vf)
@@ -1679,7 +1710,7 @@ bool oneFileCheckSchema (OneFile *vf, char *textSchema)
   OneSchema *vs0 = vs ; // need to keep the root to destroy the full schema
 
   if (vs->nxt) // the textSchema contained at least one 'P' line to define a file type
-    { while (vs && strcmp (vs->primary, vf->fileType)) vs = vs->nxt ;
+    { while (vs && (!vs->primary || strcmp (vs->primary, vf->fileType))) vs = vs->nxt ;
       if (!vs)
 	{ fprintf (stderr, "OneSchema mismatch: file type %s not found in schema\n",
 		   vf->fileType) ;
@@ -1687,6 +1718,8 @@ bool oneFileCheckSchema (OneFile *vf, char *textSchema)
 	  return false ;
 	}
     }
+  
+  // at this point vs->primary matches vf->fileType
 
   bool isMatch = true ;
   int  i, j ;
@@ -1864,7 +1897,7 @@ static void writeHeader (OneFile *vf)
 
   fprintf (vf->f, "1 %lu %s %d %d", strlen(vf->fileType), vf->fileType, MAJOR, MINOR);
   vf->line += 1;
-  if (*vf->subType)
+  if (vf->subType)
     { fprintf (vf->f, "\n2 %lu %s", strlen(vf->subType), vf->subType);
       vf->line += 1;
     }
@@ -3152,6 +3185,8 @@ static uint8 Number[128] =
     };
 
   //  Compress DNA into 2-bits per base
+  //  Richard switched to little-endian December 2022 - big-endian remains in comments
+  //  should detect endianness and check and/or switch
 
 int Compress_DNA(int len, char *s, char *t)
 { int    i, j;

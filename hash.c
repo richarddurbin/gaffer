@@ -20,7 +20,7 @@
  * -------------------------------------------------------------------
  * Exported functions:
  * HISTORY:
- * Last edited: Apr 13 21:53 2022 (rd109)
+ * Last edited: May 15 13:53 2023 (rd109)
  * Created: Fri Jan  7 09:20:25 2011 (rd)
  *-------------------------------------------------------------------
  */
@@ -65,7 +65,7 @@ static const int IS7 = (sizeof(I64)*8)/7 ;
 		       delta = (delta & h->mask) | 0x01 ; \
 		   }  /* delta odd is prime relative to  2^m */
 
-static const int REMOVED = (I64MAX-1)^I64MAX ;
+static int REMOVED ;
 
 static int nCreated = 0 ;
 static int nDestroyed = 0 ;
@@ -81,6 +81,7 @@ Hash hashCreate (int n)
   TrueHash *h = (TrueHash *) myalloc (sizeof (TrueHash)) ;
 
   if (sizeof(I64) != sizeof(HashKey)) die ("type size mismatch in hashCreate") ;
+  REMOVED = (I64MAX-1)^I64MAX ; // was in initialiser, but Linux does not like that??
   
   if (n < 64) n = 64 ;
   --n ;
