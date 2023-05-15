@@ -5,7 +5,7 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: May 15 14:38 2023 (rd109)
+ * Last edited: May 15 14:44 2023 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
@@ -128,10 +128,10 @@ FILE *fzopen(const char *path, const char *mode)
                  (int(*)(void*))gzclose) ;
 #else
   { cookie_io_functions_t io_funcs ;
-    iofuncs.read = gzread ;
-    iofuncs.write = gzwrite ;
-    iofuncs.seek = gzseek ;
-    iofuncs.close = gzclose ;
+    io_funcs.read = gzread ;
+    io_funcs.write = gzwrite ;
+    io_funcs.seek = gzseek ;
+    io_funcs.close = gzclose ;
     return fopencookie (zfp, mode, io_funcs) ;
   }
 #endif
