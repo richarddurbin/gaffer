@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Dec 25 02:33 2022 (rd109)
+ * Last edited: May 15 15:57 2023 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -306,6 +306,14 @@ Gfa *gfaParseSL (char *filename)
       int index ;
       switch (*word)
 	{
+	case '#': // comment line
+	  break ; 
+	case 'H': // header line
+	  word = fgetword (f) ;
+	  if (line > 1) die ("H header line not at start of GFA file - line %d", line) ;
+	  if (strlen (word) >= 6 && !strncmp (word, "VN:Z:", 5) && word[5] != '1')
+	    die ("GFA file version %d - can only parse version 1 for now", word[5]) ;
+	  break ;
 	case 'S':
 	  word = fgetword (f) ; // name
 	  if (!dictAdd (gf->seqName, word, &index)) die ("duplicate S id line %d", line) ;
