@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 17:52 2023 (rd109)
+ * Last edited: May 18 17:55 2023 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -45,6 +45,8 @@ int main (int argc, char *argv[])
   OneSchema *schema = oneSchemaCreateFromText (syngSchemaText) ;
   OneFile *seg, *segseq, *seqsyn, *link ;
   Seqhash *sh ;
+
+  timeUpdate (0) ;
 
   syncDict = dictCreate (1<<20) ;
   syncmer = arrayCreate (1<<20, Syncmer) ;
@@ -95,6 +97,7 @@ int main (int argc, char *argv[])
     oneWriteLine (segseq, 'S', w+k, dictName (syncDict, i)) ;
   oneFileClose (segseq) ;
 
+  fprintf (stderr, "total: ") ; timeTotal (stderr) ;
   return 0 ;
 }
 
