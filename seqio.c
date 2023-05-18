@@ -5,7 +5,7 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: Dec 27 13:54 2022 (rd109)
+ * Last edited: May 18 10:04 2023 (rd109)
  * * Dec 15 09:45 2022 (rd109): separated out 2bit packing/unpacking into SeqPack
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
@@ -243,6 +243,9 @@ bool seqIOread (SeqIO *si)
 	}
       else
 	memcpy (si->seqBuf, oneString(vf), si->seqLen) ;
+      si->idLen = 0 ; si->idStart = 0 ;
+      si->descLen = 0 ; si->descStart = 0 ;
+      *si->buf = 0 ;
       while (oneReadLine (vf) && vf->lineType != 'S')
 	{ if (vf->lineType == 'Q' && si->isQual)
 	    { char *q = si->qualBuf, *e = q + si->seqLen, *qv = oneString(vf) ;
