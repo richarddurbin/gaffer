@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 10:19 2023 (rd109)
+ * Last edited: May 18 16:12 2023 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -94,10 +94,10 @@ Gfa *readOneFiles (char *stem)
     die ("schema mismatch %s", fileName) ;
   int nSeg = vfs->info['S']->given.count ;
 
-  strcpy (fileName+stemLen, ".1lnk") ;
-  OneFile *vfl = oneFileOpenRead (fileName, schema, "lnk", 1) ;
+  strcpy (fileName+stemLen, ".1link") ;
+  OneFile *vfl = oneFileOpenRead (fileName, schema, "link", 1) ;
   if (!vfl) die ("can't open %s to read", fileName) ;
-  if (!oneFileCheckSchema (vfl, "P 3 lnk\nO L 4 3 INT 4 CHAR 3 INT 4 CHAR\nD O 1 3 INT\n"))
+  if (!oneFileCheckSchema (vfl, "P 4 link\nO L 4 3 INT 4 CHAR 3 INT 4 CHAR\nD O 1 3 INT\n"))
     die ("schema mismatch %s", fileName) ;
   int nLink = vfl->info['I']->given.count ;
 
@@ -108,7 +108,7 @@ Gfa *readOneFiles (char *stem)
 	die ("name number %d does not match seq number %d", vfs->info['I']->given.count, nSeg) ;
       gf->seqName = dictCreate (nSeg) ;
     }
-  
+
   while (oneReadLine (vfs))
     if (vfs->lineType == 'S')
       { Seq *s = arrayp(gf->seq, arrayMax(gf->seq), Seq) ;
@@ -143,7 +143,7 @@ Gfa *readOneFiles (char *stem)
   printf ("read file %s with %d links\n", fileName, (int)vfl->object) ;
   oneFileClose (vfl) ;
 
-  strcpy (fileName+stemLen, ".1sgs") ;
+  strcpy (fileName+stemLen, ".1segseq") ;
   OneFile *vfd = oneFileOpenRead (fileName, schema, "seq", 1) ;
   if (vfd)
     { if (!oneFileCheckSchema (vfd, "P 3 seq\nO S 1 3 DNA\n"))
@@ -223,8 +223,8 @@ void writeOneFiles (Gfa *gf, char *stem)
   oneFileClose (vfseg) ;
 
   if (arrayMax(gf->seq) && arrp(gf->seq, 0, Seq)->dna)
-    { strcpy (fileName+stemLen, ".1sgs") ;
-      OneFile *vfseq = oneFileOpenWriteNew (fileName, schema, "sgs", true, 1) ;
+    { strcpy (fileName+stemLen, ".1segseq") ;
+      OneFile *vfseq = oneFileOpenWriteNew (fileName, schema, "segseq", true, 1) ;
       if (!vfseq) die ("can't open % to write", fileName) ;
       for (i = 0 ; i < arrayMax(gf->seq) ; i += 2) /* only write sequences in one direction */
 	{ Seq *s = arrp(gf->seq, i, Seq) ;
@@ -234,15 +234,15 @@ void writeOneFiles (Gfa *gf, char *stem)
       oneFileClose (vfseq) ;
     }
 
-  strcpy (fileName+stemLen, ".1lnk") ;
-  OneFile *vfl = oneFileOpenWriteNew (fileName, schema, "lnk", true, 1) ;
+  strcpy (fileName+stemLen, ".1link") ;
+  OneFile *vfl = oneFileOpenWriteNew (fileName, schema, "link", true, 1) ;
   if (!vfl) die ("can't open %s", fileName) ;
   for (i = 0 ; i < arrayMax(gf->link) ; ++i)
     { Link *l = arrp(gf->link, i, Link) ;
       oneInt(vfl,0) = 1 + (l->s1 >> 1) ;
-      oneChar(vfl,1) = (l->s1 & 1) ? '<' : '>' ;
+      oneChar(vfl,1) = (l->s1 & 1) ? '-' : '+' ;
       oneInt(vfl,2) = 1 + (l->s2 >> 1) ;
-      oneChar(vfl,3) = (l->s2 & 1) ? '<' : '>' ;
+      oneChar(vfl,3) = (l->s2 & 1) ? '-' : '+' ;
       oneWriteLine (vfl, 'L', 0, 0) ;
       if (l->overlap) { oneInt(vfl,0) = l->overlap ; oneWriteLine (vfl, 'O', 0, 0) ; }
     }
@@ -250,8 +250,8 @@ void writeOneFiles (Gfa *gf, char *stem)
   oneFileClose (vfl) ;
 
   if (gf->path)
-    { strcpy (fileName+stemLen, ".1pth") ;
-      OneFile *vfp = oneFileOpenWriteNew (fileName, schema, "pth", true, 1) ;
+    { strcpy (fileName+stemLen, ".1path") ;
+      OneFile *vfp = oneFileOpenWriteNew (fileName, schema, "path", true, 1) ;
       if (!vfp) die ("can't open %s", fileName) ;
       Array aI64 = arrayCreate (64, I64) ;
       Array aDir = arrayCreate (64, char) ;
@@ -264,7 +264,7 @@ void writeOneFiles (Gfa *gf, char *stem)
 	  int *asj = arrp(p->as, 0, int) ;
 	  for (j = 0 ; j < n ; ++j, ++asj)
 	    { arr(aI64,j,I64) = 1 + (*asj >> 1) ; // can use arr() since space confirmed
-	      arr(aDir,j,char) = (*asj & 0x1) ? '<' : '>' ;
+	      arr(aDir,j,char) = (*asj & 0x1) ? '-' : '+' ;
 	    }
 	  arrayMax(aI64) = n ; arrayMax(aDir) = n ; // must set by hand because not set by arr
 	  oneWriteLine (vfp, 'P', n, arrp(aI64,0,I64)) ;
@@ -515,14 +515,14 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
       { index *= 2 ;
 	Seq *seq = arrp (gf->seq, index, Seq) ;
 	if (si->seqLen != seq->len)
-	  die ("length mismatch for %s seq %" PRId64 "d != gfa %" PRId64 "d", sqioId(si), si->seqLen, seq->len) ;
+	  die ("length mismatch for %s seq %" PRId64 " != gfa %" PRId64 "", sqioId(si), si->seqLen, seq->len) ;
 	seq->dna = seqPack (SP, sqioSeq(si), 0, si->seqLen) ;
 	++seq ; seq->dna = seqRevCompPacked (seq->dna, 0, si->seqLen) ;
 	total += si->seqLen ;
       }
     else
       die ("unknown sequence %s", sqioId(si)) ;
-  printf ("read %" PRId64 "d sequences total %" PRId64 "d from %s file %s\n",
+  printf ("read %" PRId64 " sequences total %" PRId64 " from %s file %s\n",
 	  si->nSeq, total, seqIOtypeName[si->type], filename) ;
   seqIOclose (si) ;
 }
@@ -921,6 +921,7 @@ int main (int argc, char *argv[])
 static char *gfaSchemaText =
   "1 3 def 1 0   schema for GFA\n"
   ".\n"
+  ". checked 18/5/2023 with GFA1 spec at https://github.com/GFA-spec/GFA-spec/blob/master/GFA1.md\n"
   ". segments don't need to have explicit sequences - so we make them their own class\n"
   ". if segment sequences are available use the sgs subtype of seq\n" 
   ".\n"
@@ -934,33 +935,35 @@ static char *gfaSchemaText =
   "D U 1 6 STRING          UR URL for sequence\n"
   ".\n"
   "P 3 seq                 SEQUENCE\n"
-  "S 3 sgs                 segment sequences - objects are 1:1 with those in seg file\n"
-  "S 3 srd                 read sequences\n"
+  "S 6 segseq              segment sequences - objects are 1:1 with those in seg file\n"
+  "S 7 readseq             read sequences\n"
   "O S 1 3 DNA             sequence: the DNA string\n"
   "D I 1 6 STRING          id - sequence identifier; unnecessary for segments\n"
   "D Q 1 6 STRING          base quality - Q values (ascii string = q+33)\n"
-  "D P 1 8 INT_LIST        kmer ploidy estimates - 0 for error, 1,2... for ploidy, R for repeat\n"
+  "D P 1 6 STRING          kmer ploidy estimates - '0' for error, '1','2'..'8' for ploidy, '*' for repeat\n"
   ".\n"
-  "P 3 lnk                             LINK\n"
-  "O L 4 3 INT 4 CHAR 3 INT 4 CHAR     s1 dir1 s2 dir2 - s1,2 are indices in seg file, dir=+|-\n"
+  "P 4 link                            LINK (default, or a JUMP if J is present)\n"
+  "O L 4 3 INT 4 CHAR 3 INT 4 CHAR     s1 dir1 s2 dir2 - s1,2 are indices in seg file, dir='+'|'-'\n"
   "D O 1 3 INT                         overlap - else presume abut\n"
-  "D G 1 6 STRING                      cigar string - else presume exact (only meaningful if O)\n"
+  "D J 1 3 INT                         a JUMP not a link - int is the gap, 0 if unknown (GFA '*'), -ve for possible overlap\n"
+  "D G 1 6 STRING                      cigar string - else presume exact (only meaningful if overlapping)\n"
   "D Q 1 3 INT                         MQ mapping quality\n"
   "D M 1 3 INT                         NM number of mismatches\n"
   "D R 1 3 INT                         RC read count\n"
   "D F 1 3 INT                         FC fragment count\n"
   "D K 1 3 INT                         KC k-mer count\n"
   "D I 1 6 STRING                      ID edge identifier (deprecated)\n"
+  "D C 0                               SC if present then a shortcut - see spec - used for scaffolds\n"
   ".\n"
-  "P 3 pth                 PATH\n"
+  "P 4 path                PATH\n"
   "O P 1 8 INT_LIST        list of segments\n"
   "D D 1 6 STRING          list of directions of each segment (+ or -) - required\n"
   "D I 1 6 STRING          path identifier (required by GFA) - optional here\n"
   "D G 1 11 STRING_LIST    list of cigar strings for overlaps - optional/deprecated\n"
-  "D S 1 3 INT             start in first segment - defaults to 0 if missing\n"
-  "D E 1 3 INT             end distance from end of last segment - defaults to 0 if missing\n"
+  "D S 1 3 INT             start in first segment - defaults to 0 if missing - not in GFA\n"
+  "D E 1 3 INT             end distance from end of last segment - defaults to 0 if missing - not in GFA\n"
   ".\n"
-  "P 3 wlk                 WALK - in GFA 1.1 only - requires non-overlapping segments\n"
+  "P 4 walk                WALK - in GFA 1.1 only - requires non-overlapping segments\n"
   "O W 2 3 INT 8 INT_LIST  length, list of segments\n"
   "D D 1 6 STRING          list of directions of each segment (+ or -) - required\n"
   "D I 1 6 STRING          identifier (required by GFA)\n"
@@ -969,14 +972,14 @@ static char *gfaSchemaText =
   "D S 1 3 INT             start in first segment - defaults to 0 if missing\n"
   "D E 1 3 INT             end distance from end of last segment - defaults to 0 if missing\n"
   ".\n"
-  "P 3 ctn                                  CONTAINMENT - contained and container are both segs\n"
+  "P 7 contain                              CONTAINMENT - contained and container are both segs\n"
   "O L 5 3 INT 4 CHAR 3 INT 4 CHAR 3 INT    s1 dir1 s2 dir2 pos - s1,2 in seg file dir=+|- start position\n"
   "D G 1 6 STRING                           cigar string - else presume exact match\n"
   "D I 1 6 STRING                           ID edge identifier (deprecated)\n"
   "D R 1 3 INT                              RC read count\n"
   "D M 1 3 INT                              NM number of mismatches\n"
   ".\n"
-  "P 3 aln                 ALIGNMENT - of sequences from a sequence file, e.g. reads\n"
+  "P 5 align               ALIGNMENT - of sequences from a sequence file, e.g. reads\n"
   "O A 2 3 INT 8 INT_LIST  index of seq to align, list of segments as in WALK\n"
   "D D 1 6 STRING          list of directions of each segment (+ or -) - required\n"
   "D S 1 3 INT             start - as in WALK\n"
