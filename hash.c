@@ -20,7 +20,7 @@
  * -------------------------------------------------------------------
  * Exported functions:
  * HISTORY:
- * Last edited: May 15 13:53 2023 (rd109)
+ * Last edited: May 18 10:18 2023 (rd109)
  * Created: Fri Jan  7 09:20:25 2011 (rd)
  *-------------------------------------------------------------------
  */
@@ -282,7 +282,7 @@ void hashStats (void)
 {
   printf ("%d hashes (%d created, %d destroyed)\n", 
 	  nCreated - nDestroyed, nCreated, nDestroyed) ;
-  printf ("%lld added, %lld found, %lld bounced, %lld not found\n",
+  printf ("%" PRId64 "d added, %" PRId64 "d found, %" PRId64 "d bounced, %" PRId64 "d not found\n",
 	  nAdded, nFound, nBounced, nNotFound) ;
 }
 

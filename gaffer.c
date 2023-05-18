@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 15 15:57 2023 (rd109)
+ * Last edited: May 18 10:19 2023 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -515,14 +515,14 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
       { index *= 2 ;
 	Seq *seq = arrp (gf->seq, index, Seq) ;
 	if (si->seqLen != seq->len)
-	  die ("length mismatch for %s seq %lld != gfa %lld", sqioId(si), si->seqLen, seq->len) ;
+	  die ("length mismatch for %s seq %" PRId64 "d != gfa %" PRId64 "d", sqioId(si), si->seqLen, seq->len) ;
 	seq->dna = seqPack (SP, sqioSeq(si), 0, si->seqLen) ;
 	++seq ; seq->dna = seqRevCompPacked (seq->dna, 0, si->seqLen) ;
 	total += si->seqLen ;
       }
     else
       die ("unknown sequence %s", sqioId(si)) ;
-  printf ("read %lld sequences total %lld from %s file %s\n",
+  printf ("read %" PRId64 "d sequences total %" PRId64 "d from %s file %s\n",
 	  si->nSeq, total, seqIOtypeName[si->type], filename) ;
   seqIOclose (si) ;
 }

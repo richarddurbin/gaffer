@@ -5,7 +5,7 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 10:04 2023 (rd109)
+ * Last edited: May 18 10:15 2023 (rd109)
  * * Dec 15 09:45 2022 (rd109): separated out 2bit packing/unpacking into SeqPack
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
@@ -765,21 +765,21 @@ U64 seqMatchPacked (U8 *a, U64 ia, U8 *b, U64 ib, U64 len)
       if (abuf[i] != bbuf[i])
 	{ abuf[len] = bbuf[len] = 0 ;
 	  if (d2 != d)
-	    printf ("SEQMATCH ia %d ib %d len %d d %lld d2 %lld abuf %s bbuf %s i %d\n",
+	    printf ("SEQMATCH ia %d ib %d len %d d %" PRId64 "d d2 %" PRId64 "d abuf %s bbuf %s i %d\n",
 		    iia, iib, ilen, d, d2, abuf, bbuf, i) ;
 	  return d ;
 	}
     }
   if (d2)
-    printf ("SEQMATCH ia %d ib %d len %d d %lld d2 %lld abuf %s bbuf %s i %d ca %c cb %c\n",
+    printf ("SEQMATCH ia %d ib %d len %d d %" PRId64 "d d2 %" PRId64 "d abuf %s bbuf %s i %d ca %c cb %c\n",
 	    iia, iib, ilen, d, d2, abuf, bbuf, i, ca, cb) ;
   d = 0 ; // if we get here then they all match
 
  end:
   if ((!d2 && d) || (d != d2 && d+32 < d2))
-    { printf ("seqMatch ia %d ib %d len %d d %lld d2 %lld a %s b %s\n",
+    { printf ("seqMatch ia %d ib %d len %d d %" PRId64 "d d2 %" PRId64 "d a %s b %s\n",
 	      iia, iib, ilen, d, d2, sa, sb) ;
-      printf ("   local d %lld  uua %0llx uub %0llx chunk %d mask[chunk] %0llx\n",
+      printf ("   local d %" PRId64 "d  uua %0llx uub %0llx chunk %d mask[chunk] %0llx\n",
 	      d, uua, uub, chunk, mask[chunk]) ;
     }
   return d ;

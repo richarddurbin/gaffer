@@ -7,7 +7,7 @@
 	see test main() at end for standard usage pattern
  * Exported functions: see seqhash.h
  * HISTORY:
- * Last edited: May 18 09:49 2023 (rd109)
+ * Last edited: May 18 10:16 2023 (rd109)
  * Created: Sat Feb 24 19:20:18 2018 (rd)
  *-------------------------------------------------------------------
  */
@@ -221,7 +221,7 @@ bool syncmerNext (SeqhashIterator *si, U64 *kmer, int *pos, bool *isF)
   if (si->isDone) return false ; /* we are done */
 
 #ifdef DEBUG
-  printf ("base %d, iStart %d, min %llx\n", si->base, si->iStart, si->min) ;
+  printf ("base %d, iStart %d, min %" PRId64 "x\n", si->base, si->iStart, si->min) ;
   int j ; for (j = 0 ; j < si->sh->w ; ++j) printf ("  %x", si->hash[j]) ;
   printf ("\n") ;
 #endif
@@ -315,7 +315,7 @@ int main (int argc, char *argv[])
   
   Seqhash *sh = seqhashCreate (K, W, 0) ;
   while (seqIOread (sio))
-    { printf ("\nread sequence %s length %llu\n", sqioId(sio), sio->seqLen) ;
+    { printf ("\nread sequence %s length %" PRId64 "u\n", sqioId(sio), sio->seqLen) ;
       SeqhashIterator *si = syncmerIterator (sh, sqioSeq(sio), sio->seqLen) ;
       while (syncmerNext (si, &u, &pos, &isF))
 	{ printf ("\t%08llx\t%s\t%d\t%c",

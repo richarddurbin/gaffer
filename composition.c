@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Aug 18 23:24 2022 (rd109)
+ * Last edited: May 18 10:17 2023 (rd109)
  * Created: Sun Nov 11 17:21:40 2018 (rd109)
  *-------------------------------------------------------------------
  */
@@ -72,16 +72,16 @@ int main (int argc, char *argv[])
 	  while (q < e) ++totQual[*q++] ;
 	}
     }
-  printf ("%s file, %llu sequences >= 0, %llu total, %.2f average, %llu min, %llu max\n",
+  printf ("%s file, %" PRId64 "u sequences >= 0, %" PRId64 "u total, %.2f average, %" PRId64 "u min, %" PRId64 "u max\n",
 	  seqIOtypeName[si->type], si->nSeq, totLen, totLen / (double) si->nSeq, lenMin, lenMax) ;
   if (totBase)
     { printf ("bases\n") ;
       for (i = 0 ; i < 256 ; ++i)
 	if (totBase[i])
 	  { if (isprint(i))
-	      printf ("  %c %llu %4.1f %%\n", i, totBase[i], totBase[i]*100.0/totLen) ;
+	      printf ("  %c %" PRId64 "u %4.1f %%\n", i, totBase[i], totBase[i]*100.0/totLen) ;
 	    else
-	      printf ("  unprint-%d %llu %4.1f %%\n", i, totBase[i], totBase[i]*100.0/totLen) ;
+	      printf ("  unprint-%d %" PRId64 "u %4.1f %%\n", i, totBase[i], totBase[i]*100.0/totLen) ;
 	  }
       free (totBase) ;
     }
@@ -91,7 +91,7 @@ int main (int argc, char *argv[])
       U64 sum = 0 ;
       for (i = 0 ; i < 256 ; ++i)
 	{ sum += totQual[i] ;
-	  if (totQual[i]) printf (" %3d %llu %4.1f %% %5.1f %%\n",
+	  if (totQual[i]) printf (" %3d %" PRId64 "u %4.1f %% %5.1f %%\n",
 				  i, totQual[i], totQual[i]*100.0/totLen, sum*100.0/totLen) ;
 	}
       free (totQual) ;
@@ -109,7 +109,7 @@ int main (int argc, char *argv[])
 	  for (i = 0 ; i < arrayMax(lengthCount) ; ++i)
 	    { s += arr(lengthCount, i, int) ;
 	      if (s && !((arrayMax(lengthCount)-1-i) % d))
-		{ printf ("  %lld\t%d\n", (i*(U64)i)/100, s) ;
+		{ printf ("  %" PRId64 "d\t%d\n", (i*(U64)i)/100, s) ;
 		  s = 0 ;
 		}
 	    }
