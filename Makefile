@@ -4,7 +4,7 @@
 CFLAGS= -DMACOS -g -target arm64-apple-macos11	# for debugging
 #CFLAGS= -DLINUX -03 -DOMP -fopenmp		# for OMP parallelisation - doesn't compile on Mac
 
-ALL=gaffer seqconvert composition ONEview ONEstat
+ALL=gaffer seqconvert composition ONEview ONEstat syng
 
 DESTDIR=~/bin
 
@@ -29,6 +29,9 @@ SEQIO_LIBS = -lm -lz
 seqio.o: seqio.c seqio.h 
 	$(CC) $(CFLAGS) $(SEQIO_OPTS) -c $^
 
+seqhash.o: seqhash.c seqhash.h 
+	$(CC) $(CFLAGS) -c $^
+
 ONElib.o: ONElib.c ONElib.h 
 	$(CC) $(CFLAGS) -c $^
 
@@ -43,10 +46,14 @@ composition: composition.c seqio.o ONElib.o $(UTILS_OBJS)
 gaffer: gaffer.c seqio.o ONElib.o $(UTILS_OBJS)
 	$(CC) $(CFLAGS) $^ -o $@ $(SEQIO_LIBS)
 
+syng: syng.c seqio.o seqhash.o ONElib.o $(UTILS_OBJS)
+	$(CC) $(CFLAGS) $^ -o $@ $(SEQIO_LIBS)
+
 ONEview: ONEview.c ONElib.o utils.o
 	$(CC) $(CFLAGS) $^ -o $@ -lz
 
 ONEstat: ONEstat.c ONElib.o utils.o
 	$(CC) $(CFLAGS) $^ -o $@ -lz
+
 
 ### end of file
