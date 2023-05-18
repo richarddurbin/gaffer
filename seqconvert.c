@@ -5,7 +5,7 @@
  * Description: utility to convert between sequence formats
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 10:18 2023 (rd109)
+ * Last edited: May 18 10:43 2023 (rd109)
  * Created: Sun Feb 17 10:23:37 2019 (rd109)
  *-------------------------------------------------------------------
  */
@@ -75,7 +75,7 @@ int main (int argc, char *argv[])
   if (isVerbose)
     { fprintf (stderr, "reading from file type %s", seqIOtypeName[siIn->type]) ;
       if (siIn->type == BINARY || siIn->type == ONE)
-	fprintf (stderr, "  with %" PRId64 "u sequences totLen %" PRId64 "u", siIn->nSeq, siIn->totSeqLen) ;
+	fprintf (stderr, "  with %" PRIu64 " sequences totLen %" PRIu64 "", siIn->nSeq, siIn->totSeqLen) ;
       fprintf (stderr, "\n") ;
     }
 
@@ -97,7 +97,7 @@ int main (int argc, char *argv[])
   seqIOclose (siOut) ;
 
   if (isVerbose)
-    { fprintf (stderr, "written %" PRId64 "d sequences to file type %s, total length %" PRId64 "d, max length %" PRId64 "d\n",
+    { fprintf (stderr, "written %" PRIu64 " sequences to file type %s, total length %" PRIu64 ", max length %" PRIu64 "\n",
 	       siOut->nSeq, seqIOtypeName[siOut->type], siOut->totSeqLen, siOut->maxSeqLen) ;
   
       timeTotal (stderr) ;

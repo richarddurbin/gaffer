@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 10:17 2023 (rd109)
+ * Last edited: May 18 10:39 2023 (rd109)
  * Created: Thu Feb 21 22:40:28 2019 (rd109)
  *-------------------------------------------------------------------
  */
@@ -40,7 +40,7 @@ static IndexList *parseIndexList (char *s)
     { while (*s >= '0' && *s <= '9') ol->i0 = ol->i0*10 + (*s++ - '0') ;
       if (*s == '-')
 	{ ++s ; while (*s >= '0' && *s <= '9') ol->iN = ol->iN*10 + (*s++ - '0') ;
-	  if (ol->iN <= ol->i0) die ("end index %" PRId64 "d <= start index %" PRId64 "d", ol->iN, ol->i0) ;
+	  if (ol->iN <= ol->i0) die ("end index %" PRId64 " <= start index %" PRId64 "", ol->iN, ol->i0) ;
 	}
       else
 	ol->iN = ol->i0 + 1 ;
@@ -139,9 +139,9 @@ int main (int argc, char **argv)
       if (objList)
 	{ while (objList)
 	    { if (!oneGotoObject (vfIn, objList->i0))
-		die ("can't locate to object %" PRId64 "d", objList->i0 ) ;
+		die ("can't locate to object %" PRId64 "", objList->i0 ) ;
 	      if (!oneReadLine (vfIn))
-		die ("can't read object %" PRId64 "d", objList->i0) ;
+		die ("can't read object %" PRId64 "", objList->i0) ;
 	      while (objList->i0 < objList->iN)
 		{ transferLine (vfIn, vfOut, fieldSize) ;
 		  if (!oneReadLine (vfIn)) break ;
@@ -153,9 +153,9 @@ int main (int argc, char **argv)
       else if (groupList)
 	{ while (groupList)
 	    { if (!oneGotoGroup (vfIn, groupList->i0))
-		die ("can't locate to group %" PRId64 "d", groupList->i0 ) ;
+		die ("can't locate to group %" PRId64 "", groupList->i0 ) ;
 	      if (!oneReadLine (vfIn))
-		die ("can't read group %" PRId64 "d", groupList->i0) ;
+		die ("can't read group %" PRId64 "", groupList->i0) ;
 	      while (groupList->i0 < groupList->iN)
 		{ transferLine (vfIn, vfOut, fieldSize) ;
 		  if (!oneReadLine (vfIn)) break ;
