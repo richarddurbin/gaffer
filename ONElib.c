@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: May 15 13:57 2023 (rd109)
+ * Last edited: May 18 16:13 2023 (rd109)
  * * Dec 20 21:29 2022 (rd109): changed DNA compression to little-endian: natural on Intel, Apple
  * * Apr 23 00:31 2020 (rd109): global rename of VGP to ONE, Vgp to One, vgp to one
  * * Apr 20 11:27 2020 (rd109): added VgpSchema to make schema dynamic
@@ -1257,8 +1257,6 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
           break;
 
         case '2':
-	  if (oneLen(vf) != 3)
-	    parseError (vf, "secondary subType must have length 3") ;
 	  if (isDynamic)
             { char *s = oneString(vf);
               vf->subType = new (oneLen(vf)+1, char);
