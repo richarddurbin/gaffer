@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 17:46 2023 (rd109)
+ * Last edited: May 18 17:52 2023 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -72,7 +72,7 @@ int main (int argc, char *argv[])
       int pos ;
       printf ("%s %" PRId64 " :", sqioId(sio), sio->seqLen) ;
       while (syncmerNext (sit, 0, &pos, 0))
-	printf (" %d\n", pos) ;
+	printf (" %d", pos) ;
       printf ("\n") ;
     }
   
