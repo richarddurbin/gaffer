@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 17:55 2023 (rd109)
+ * Last edited: May 19 08:01 2023 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -40,11 +40,11 @@ int main (int argc, char *argv[])
   int w = 1023 ;
   int k = 16 ;
   int seed = 7 ;
-  char *outPrefix ;
+  char *outPrefix = "syng-out" ;
   SeqIO *sio ;
   OneSchema *schema = oneSchemaCreateFromText (syngSchemaText) ;
   OneFile *seg, *segseq, *seqsyn, *link ;
-  Seqhash *sh ;
+  char *acgt = "acgt", *tgca = "tgca" ; // normal and complemented
 
   timeUpdate (0) ;
 
@@ -52,7 +52,7 @@ int main (int argc, char *argv[])
   syncmer = arrayCreate (1<<20, Syncmer) ;
 
   argc-- ; ++argv ;
-  if (!argc) { printf ("%s",usage) ; ; exit (0) ; }
+  if (!argc) { printf ("%s",usage) ; exit (0) ; }
 
   while (argc > 0 && **argv == '-')
     if (!strcmp (*argv, "-w") && argc > 1) { w = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
@@ -61,25 +61,59 @@ int main (int argc, char *argv[])
     else if (!strcmp (*argv, "-o") && argc > 1) { outPrefix = argv[1] ; argc -= 2 ; argv += 2 ; }
     else die ("unknown parameter %s\n%s", *argv, usage) ;
 
-  sh = seqhashCreate (k, w, seed) ;
-  
-  if (!(seg = oneFileOpenWriteNew (fnameTag (outPrefix,"1seqsyn"), schema, "seqsyn", true, 1)))
-      die ("failed to open %s.1seqsyn to write", outPrefix) ;
+  Seqhash *sh = seqhashCreate (k, w, seed) ;
 
   if (argc != 1) die ("need to give a read sequence file\n%s", usage) ;
   if (!(sio = seqIOopenRead (*argv, dna2indexConv, false)))
     die ("failed to open read sequence file %s", *argv) ;
+  char *syncString = new0 (w+k+1, char) ;
+  if (!(seqsyn = oneFileOpenWriteNew (fnameTag (outPrefix,"1seqsyn"), schema, "seqsyn", true, 1)))
+      die ("failed to open %s.1seqsyn to write", outPrefix) ;
+  Array readSync = arrayCreate(64,I64) ;
+  Array readPos = arrayCreate(64,I64) ;
+  Array readDir = arrayCreate(64,char) ;
+  U64 nSeq = 0, totSeq = 0, totSync = 0 ;
   while (seqIOread (sio))
-    { SeqhashIterator *sit = syncmerIterator (sh, sqioSeq(sio), sio->seqLen) ;
-      int pos ;
-      printf ("%s %" PRId64 " :", sqioId(sio), sio->seqLen) ;
+    { char* seq = sqioSeq(sio) ;
+      SeqhashIterator *sit = syncmerIterator (sh, seq, sio->seqLen) ;
+      int pos, index ;
+      // printf ("%s %" PRId64 " :", sqioId(sio), sio->seqLen) ;
+      arrayMax(readSync) = 0 ; arrayMax(readPos) = 0 ; arrayMax(readDir) = 0 ;
       while (syncmerNext (sit, 0, &pos, 0))
-	printf (" %d", pos) ;
-      printf ("\n") ;
+	{ array(readPos,arrayMax(readPos),I64) = pos ;
+	  int i = pos-1, j = pos+w+k ; while (seq[++i] == 3 - seq[--j]) ;
+	  if (seq[i] < seq[j])
+	    { array(readDir,arrayMax(readDir),char) = '+' ;
+	      for (i = 0 ; i < w+k ; ++i) syncString[i] = acgt[seq[pos+i]] ;
+	      dictAdd (syncDict, syncString, &index) ;
+	      arrayp(syncmer,index,Syncmer)->n++ ;
+	      array(readSync,arrayMax(readSync),I64) = index ;
+	      // printf (" %d+%d", index, pos) ;
+	    }
+	  else
+	    { array(readDir,arrayMax(readDir),char) = '-' ;
+	      for (i = 0 ; i < w+k ; ++i) syncString[w+k-i-1] = tgca[seq[pos+i]] ;
+	      dictAdd (syncDict, syncString, &index) ;
+	      arrayp(syncmer,index,Syncmer)->n++ ;
+	      array(readSync,arrayMax(readSync),I64) = index ;
+	      //      printf (" %d-%d", index, pos) ;
+	    }
+	}
+      //      printf ("\n") ;
+      oneWriteLine (seqsyn, 'S', arrayMax(readSync), arrp(readSync,0,I64)) ;
+      oneWriteLine (seqsyn, 'P', arrayMax(readPos), arrp(readPos,0,I64)) ;
+      oneWriteLine (seqsyn, 'O', arrayMax(readDir), arrp(readDir,0,char)) ;
+      nSeq++ ; totSeq += sio->seqLen ; totSync += arrayMax(readSync) ;
     }
+
+  printf ("read %" PRIu64 " sequences, total length %" PRIu64 ""
+          ", yielding %" PRIu64 " instances of %d syncmers, average %.2f coverage\n", 
+          nSeq, totSeq, totSync, arrayMax(syncmer), totSync / (double)arrayMax(syncmer)) ; 
   
   oneFileClose (seqsyn) ;
-  
+  arrayDestroy (readSync) ;
+  arrayDestroy (readPos) ;
+  arrayDestroy (readDir) ;
 
   if (!(seg = oneFileOpenWriteNew (fnameTag (outPrefix,"1seg"), schema, "seg", true, 1)))
     die ("failed to open %s.1seg to write", outPrefix) ;
@@ -91,9 +125,9 @@ int main (int argc, char *argv[])
     }
   oneFileClose (seg) ;
 
-  if (!(seg = oneFileOpenWriteNew (fnameTag (outPrefix,"1segseq"), schema, "segseq", true, 1)))
+  if (!(segseq = oneFileOpenWriteNew (fnameTag (outPrefix,"1segseq"), schema, "segseq", true, 1)))
     die ("failed to open %s.1segseq to write", outPrefix) ;
-  for (i = 0 ; i < arrayMax(syncmer) ; ++i)
+  for (i = 0 ; i < dictMax(syncDict) ; ++i)
     oneWriteLine (segseq, 'S', w+k, dictName (syncDict, i)) ;
   oneFileClose (segseq) ;
 
@@ -118,7 +152,8 @@ static char *syngSchemaText =
   ".\n"
   "P 6 seqsyn                sequences of syncmers\n"
   "O S 1 8 INT_LIST          sequence: list of syncmer seg ids\n"
-  "D O 1 6 STRING            orientations of syncmers\n"
+  "D P 1 8 INT_LIST          positions of the syncmers\n"
+  "D O 1 6 STRING            orientations of the syncmers\n"
   ".\n"
   "P 4 link                            LINK (default, or a JUMP if J is present)\n"
   "O L 4 3 INT 4 CHAR 3 INT 4 CHAR     s1 dir1 s2 dir2 - s1,2 are indices in seg file, dir='+'|'-'\n"
@@ -133,3 +168,4 @@ static char *syngSchemaText =
   "D I 1 6 STRING                      ID edge identifier (deprecated)\n"
   "D C 0                               SC if present then a shortcut - see spec - used for scaffolds\n" ;
 
+/*********************** end of file **********************/
