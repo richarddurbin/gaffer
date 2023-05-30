@@ -20,12 +20,14 @@
  * -------------------------------------------------------------------
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 10:41 2023 (rd109)
+ * Last edited: May 29 12:48 2023 (rd109)
  * Created: Fri Jan  7 09:20:25 2011 (rd)
  *-------------------------------------------------------------------
  */
 
-#include "utils.h"		/* includes array.h, hash.h */
+
+#include "hash.h"
+#include "array.h"
 
 /* Originally grabbed from Steve Omohundro's sather code by Richard Durbin.
 

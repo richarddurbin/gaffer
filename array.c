@@ -26,13 +26,13 @@
  * Exported functions:
  *              See Header file: array.h (includes lots of macros)
  * HISTORY:
- * Last edited: Jun 20 12:57 2020 (rd109)
+ * Last edited: May 29 12:52 2023 (rd109)
  * * Feb 14 11:21 2011 (rd): modified in 2009/10 by RD for stand-alone use
  * Created: Thu Dec 12 15:43:25 1989 (mieg)
  *-------------------------------------------------------------------
  */
 
-#include "utils.h"
+#include "array.h"
 
 /********** Array : class to implement variable length arrays **********/
 

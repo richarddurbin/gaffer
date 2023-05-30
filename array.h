@@ -24,12 +24,14 @@
  * Exported functions:
  *              the Array type and associated macros and functions
  * HISTORY:
- * Last edited: Jun 20 12:57 2020 (rd109)
+ * Last edited: May 29 12:51 2023 (rd109)
  *-------------------------------------------------------------------
  */
 
 #ifndef ARRAY_DEFINED
 #define ARRAY_DEFINED
+
+#include "utils.h"
 
 /* #define ARRAY_CHECK either here or in a single file to
    check the bounds on arr() and arrp() calls

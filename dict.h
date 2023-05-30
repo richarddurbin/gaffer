@@ -7,13 +7,15 @@
 		Jean Thierry-Mieg and Richard Durbin 1989-
  * Exported functions:
  * HISTORY:
- * Last edited: Jun 20 13:04 2020 (rd109)
+ * Last edited: May 29 12:50 2023 (rd109)
  * Created: Sat Dec 20 09:34:14 2008 (rd)
  *-------------------------------------------------------------------
  */
 
 #ifndef DICT_DEFINED
 #define DICT_DEFINED
+
+#include "utils.h"
 
 typedef struct {
   char* *names ;

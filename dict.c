@@ -20,15 +20,14 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Jun 20 13:04 2020 (rd109)
+ * Last edited: May 29 12:50 2023 (rd109)
  * Created: July 2003 (rd)
  *-------------------------------------------------------------------
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "utils.h"
+#include "dict.h"
+
+#include "array.h"
 
 /****************************************/
 

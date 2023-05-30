@@ -5,7 +5,7 @@
  * Description: includes standard system headers and own headers
  * Exported functions:
  * HISTORY:
- * Last edited: Jul 18 10:53 2022 (rd109)
+ * Last edited: May 29 12:26 2023 (rd109)
  * Created: Wed Jan  5 16:13:48 2011 (rd)
  *-------------------------------------------------------------------
  */
@@ -39,10 +39,6 @@ const static U32 U32MAX = 0xffffffff ;
 typedef uint64_t U64 ;
 const static U64 U64MAX = 0xffffffffffffffff ;
 #endif
-
-#include "array.h"
-#include "dict.h"
-#include "hash.h"
 
 void die (char *format, ...) ;
 void warn (char *format, ...) ;
