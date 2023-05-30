@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 10:39 2023 (rd109)
+ * Last edited: May 20 18:52 2023 (rd109)
  * Created: Thu Feb 21 22:40:28 2019 (rd109)
  *-------------------------------------------------------------------
  */
@@ -17,16 +17,6 @@
 
 #include <string.h>		/* strcmp etc. */
 #include <stdlib.h>		/* for exit() */
-
-static char *commandLine (int argc, char **argv)
-{
-  int i, totLen = 0 ;
-  for (i = 0 ; i < argc ; ++i) totLen += 1 + strlen(argv[i]) ;
-  char *buf = new (totLen, char) ;
-  strcpy (buf, argv[0]) ;
-  for (i = 1 ; i < argc ; ++i) { strcat (buf, " ") ; strcat (buf, argv[i]) ; }
-  return buf ;
-}
 
 typedef struct IndexListStruct {
   I64 i0, iN ;
@@ -67,7 +57,7 @@ int main (int argc, char **argv)
   
   timeUpdate (0) ;
 
-  char *command = commandLine (argc, argv) ;
+  storeCommandLine (argc, argv) ;
   --argc ; ++argv ;		/* drop the program name */
 
   if (!argc)
@@ -130,7 +120,7 @@ int main (int argc, char **argv)
   if (isNoHeader) vfOut->isNoAsciiHeader = true ; // will have no effect if binary
   
   if (!isHeaderOnly)
-    { oneAddProvenance (vfOut, "ONEview", "0.0", command) ;
+    { oneAddProvenance (vfOut, "ONEview", "0.0", getCommandLine()) ;
       
       static size_t fieldSize[128] ;
       for (i = 0 ; i < 128 ; ++i)
@@ -173,7 +163,6 @@ int main (int argc, char **argv)
   oneFileClose (vfOut) ;
   oneSchemaDestroy (vs) ;
   
-  free (command) ;
   if (isVerbose)
     timeTotal (stderr) ;
 
