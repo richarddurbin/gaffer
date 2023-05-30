@@ -3,11 +3,11 @@
  *  File: ONElib.h
  *    Header for ONE file reading and writing
  *
- *  Authors: Richard Durbin (rd109@cam.ac.uk), Gene Myers (myers@mpi-cbg.de)
+ *  Authors: Richard Durbin (rd109@cam.ac.uk), Gene Myers (gene.myers@gmail.com)
  *  Copyright (C) Richard Durbin, Gene Myers, 2019-
  *
  * HISTORY:
- * Last edited: Dec  3 06:08 2022 (rd109)
+ * Last edited: May 20 19:00 2023 (rd109)
  * * Dec  3 06:01 2022 (rd109): remove oneWriteHeader(), switch to stdarg for oneWriteComment etc.
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
