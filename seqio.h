@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Dec 20 23:27 2022 (rd109)
+ * Last edited: May 29 13:23 2023 (rd109)
  * * Dec 20 23:23 2022 (rd109): fully revised SeqPack and QualPack
  * Created: Sat Nov 10 08:51:49 2018 (rd109)
  *-------------------------------------------------------------------
