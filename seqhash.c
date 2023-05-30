@@ -7,7 +7,7 @@
 	see test main() at end for standard usage pattern
  * Exported functions: see seqhash.h
  * HISTORY:
- * Last edited: May 18 10:16 2023 (rd109)
+ * Last edited: May 29 13:44 2023 (rd109)
  * Created: Sat Feb 24 19:20:18 2018 (rd)
  *-------------------------------------------------------------------
  */
@@ -221,7 +221,7 @@ bool syncmerNext (SeqhashIterator *si, U64 *kmer, int *pos, bool *isF)
   if (si->isDone) return false ; /* we are done */
 
 #ifdef DEBUG
-  printf ("base %d, iStart %d, min %" PRId64 "x\n", si->base, si->iStart, si->min) ;
+  printf ("base %d, iStart %d, min %" PRIx64 "\n", si->base, si->iStart, si->min) ;
   int j ; for (j = 0 ; j < si->sh->w ; ++j) printf ("  %x", si->hash[j]) ;
   printf ("\n") ;
 #endif
@@ -238,13 +238,19 @@ bool syncmerNext (SeqhashIterator *si, U64 *kmer, int *pos, bool *isF)
   
   while (true) // move forwards to the next minimum
     { U64 x = advanceHashRC (si, &si->isForward[si->iStart]) ;
-      if (si->s >= si->sEnd) return false ;
+      if (si->s >= si->sEnd) { si->isDone = true ; return true ; }
       si->hash[si->iStart++] = x ;
       if (si->iStart == si->sh->w) { si->base += si->sh->w ; si->iStart = 0 ; }
-      if (x < si->min) // min at the end of the w-mer
-	{ si->min = x ; return true ; }
+      if (x <= si->min) // min at the end of the w-mer
+	{ si->min = x ;
+	  //	  printf (" syncmerNext   at_end %" PRId64 " %" PRIx64 " %" PRIu64 "\n", si->iStart, x, si->sEnd-si->s) ;
+	  return true ;
+	}
       if (si->hash[si->iStart] == si->min) // min at the beginning of the w-mer
-	return true ;
+	{
+	  // printf (" syncmerNext at_start %" PRId64 " %" PRIx64 " %" PRIu64 "\n", si->iStart, x, si->sEnd-si->s) ;
+	  return true ;
+	}
     }
 }
 
@@ -315,7 +321,7 @@ int main (int argc, char *argv[])
   
   Seqhash *sh = seqhashCreate (K, W, 0) ;
   while (seqIOread (sio))
-    { printf ("\nread sequence %s length %" PRId64 "u\n", sqioId(sio), sio->seqLen) ;
+    { printf ("\nread sequence %s length %" PRIu64 "\n", sqioId(sio), sio->seqLen) ;
       SeqhashIterator *si = syncmerIterator (sh, sqioSeq(sio), sio->seqLen) ;
       while (syncmerNext (si, &u, &pos, &isF))
 	{ printf ("\t%08llx\t%s\t%d\t%c",
