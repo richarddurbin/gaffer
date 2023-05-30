@@ -5,7 +5,7 @@
  * Description: utility to convert between sequence formats
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 10:43 2023 (rd109)
+ * Last edited: May 30 14:02 2023 (rd109)
  * Created: Sun Feb 17 10:23:37 2019 (rd109)
  *-------------------------------------------------------------------
  */
@@ -93,8 +93,6 @@ int main (int argc, char *argv[])
 		    siIn->isQual ? sqioQual(siIn) : 0) ;
 	if (isHoco && siOut->type == ONE) writeHoco (siOut, siIn->seqLen, seqLen, runLengths) ;
       }
-  seqIOclose (siIn) ;
-  seqIOclose (siOut) ;
 
   if (isVerbose)
     { fprintf (stderr, "written %" PRIu64 " sequences to file type %s, total length %" PRIu64 ", max length %" PRIu64 "\n",
@@ -102,6 +100,9 @@ int main (int argc, char *argv[])
   
       timeTotal (stderr) ;
     }
+
+  seqIOclose (siIn) ;
+  seqIOclose (siOut) ;
 }
 
 /****************/
