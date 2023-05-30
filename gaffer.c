@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 18 16:12 2023 (rd109)
+ * Last edited: May 29 12:52 2023 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -14,6 +14,9 @@
 #define VERSION "1.1"
 
 #include "utils.h"
+#include "array.h"
+#include "dict.h"
+#include "hash.h"
 #include "seqio.h"
 #include "ONElib.h"
 
