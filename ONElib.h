@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Gene Myers, 2019-
  *
  * HISTORY:
- * Last edited: May 20 19:00 2023 (rd109)
+ * Last edited: Jun  9 12:19 2023 (rd109)
  * * Dec  3 06:01 2022 (rd109): remove oneWriteHeader(), switch to stdarg for oneWriteComment etc.
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
@@ -197,7 +197,7 @@ typedef struct
 //  CREATING AND DESTROYING SCHEMAS
 
 OneSchema *oneSchemaCreateFromFile (char *path) ;
-OneSchema *oneSchemaCreateFromText (char *text) ;
+OneSchema *oneSchemaCreateFromText (const char *text) ;
 
   // These functions create a schema handle that can be used to open One-code data files 
   //   for reading and writing.  A schema file is itself a One-code file, consisting of
@@ -229,7 +229,7 @@ void oneSchemaDestroy (OneSchema *schema) ;
 
 //  READING ONE FILES:
 
-OneFile *oneFileOpenRead (const char *path, OneSchema *schema, char *type, int nthreads) ;
+OneFile *oneFileOpenRead (const char *path, OneSchema *schema, const char *type, int nthreads) ;
 
   // Open ONE file 'path', either binary or ascii encoded, for reading.
   //   If the file doesn't have a header, then 'type' must be specified,
@@ -245,7 +245,7 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *schema, char *type, int n
   //   The slaves only read data and have the virtue of sharing indices and codecs with
   //   the master if relevant.
 
-bool oneFileCheckSchema (OneFile *vf, char *textSchema) ;
+bool oneFileCheckSchema (OneFile *vf, const char *textSchema) ; // should be a OneSchema rather than text?
 
   // Checks if file schema is consistent with text schema.  Mismatches are reported to stderr.
   // Filetype and all linetypes in text must match.  File schema can contain additional linetypes.
@@ -278,7 +278,7 @@ void   *_oneCompressedList (OneFile *vf) ;      // lazy codec compression if req
   //   only one list per line, stored in ->buffer.
   //   A "string list" is implicitly supported, get the first string with oneString, and
   //   subsequent strings sequentially with oneNextString, e.g.:
-  //
+  //char 
   //       char *s = oneString(vf);
   //       for (i = 0; i < oneLen(vf); i++)
   //         { // do something with i'th string
@@ -292,7 +292,7 @@ char *oneReadComment (OneFile *vf);
 
 //  WRITING ONE FILES:
 
-OneFile *oneFileOpenWriteNew (const char *path, OneSchema *schema, char *type,
+OneFile *oneFileOpenWriteNew (const char *path, OneSchema *schema, const char *type,
 			      bool isBinary, int nthreads);
 OneFile *oneFileOpenWriteFrom (const char *path, OneFile *vfIn,
 			       bool isBinary, int nthreads);
