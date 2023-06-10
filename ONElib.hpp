@@ -61,11 +61,13 @@ class ONEfile
     }
   ~ONEfile () { C_1F::oneFileClose (vf) ; }
 
-  bool      checkSchemaText (const string &text) { return C_1F::oneFileCheckSchema (vf, text.c_str()) ; }
+  bool      checkSchemaText (const string &text)
+    { return C_1F::oneFileCheckSchemaText (vf, text.c_str()) ; }
 
   char      readLine() { return C_1F::oneReadLine (vf) ; }
 
-  int64_t   length() { return ((vf)->field[((vf)->info[(int)(vf)->lineType]->listField)].len & 0xffffffffffffffll) ; }
+  int64_t   length()
+    { return ((vf)->field[((vf)->info[(int)(vf)->lineType]->listField)].len & 0xffffffffffffffll) ; }
   int64_t   getInt(int x) { return vf->field[x].i ; }
   void      setInt(int x, int64_t val) { vf->field[x].i = val ; }
   double    getReal(int x) { return vf->field[x].r ; }
@@ -96,6 +98,8 @@ class ONEfile
   int64_t   groupCount(char lineType) { return vf->info[lineType]->given.groupCount ; }
   int64_t   groupTotal(char lineType) { return vf->info[lineType]->given.groupTotal ; }
 } ;
+
+/******************************** simple testing code ********************************/
 
 #ifdef TEST_HEADER
 

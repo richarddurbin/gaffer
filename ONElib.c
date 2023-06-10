@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Jun 10 07:56 2023 (rd109)
+ * Last edited: Jun 10 08:31 2023 (rd109)
  * * Dec 20 21:29 2022 (rd109): changed DNA compression to little-endian: natural on Intel, Apple
  * * Apr 23 00:31 2020 (rd109): global rename of VGP to ONE, Vgp to One, vgp to one
  * * Apr 20 11:27 2020 (rd109): added VgpSchema to make schema dynamic
@@ -33,7 +33,6 @@
 #include <unistd.h>
 #include <sys/uio.h>
 #include <math.h>
-
 
 #ifdef DEBUG
 #include <assert.h>
@@ -225,7 +224,7 @@ static OneSchema *schemaLoadRecord (OneSchema *vs, OneFile *vf)
       vs->nxt = vsNxt ;
       vs = vsNxt ;
       s = oneString(vf);
-      vs->primary = new0 (oneLen(vf)+1, char) ; // RD 230512 made new0() not new()
+      vs->primary = new0 (oneLen(vf)+1, char) ;
       strcpy (vs->primary, s) ;
       vs->nFieldMax = 4 ; // needed for header
       break ;
@@ -257,7 +256,7 @@ static OneSchema *schemaLoadRecord (OneSchema *vs, OneFile *vf)
 
 static void oneFileDestroy (OneFile *vf) ; // need a forward declaration here
 
-OneSchema *oneSchemaCreateFromFile (char *filename)
+OneSchema *oneSchemaCreateFromFile (const char *filename)
 {
   FILE *fs = fopen (filename, "r") ;
   if (!fs) return 0 ;
@@ -1700,7 +1699,7 @@ OneFile *oneFileOpenWriteFrom (const char *path, OneFile *vfIn, bool isBinary, i
   return vf ;
 }
 
-bool oneFileCheckSchema (OneFile *vf, const char *textSchema)
+bool oneFileCheckSchemaText (OneFile *vf, const char *textSchema)
 {
   char      *fixedText = schemaFixNewlines (textSchema) ;
   OneSchema *vs = oneSchemaCreateFromText (fixedText) ;

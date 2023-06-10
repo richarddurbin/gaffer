@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 29 12:52 2023 (rd109)
+ * Last edited: Jun 10 08:21 2023 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -93,14 +93,14 @@ Gfa *readOneFiles (char *stem)
   strcpy (fileName+stemLen, ".1seg") ;
   OneFile *vfs = oneFileOpenRead (fileName, schema, "seg", 1) ;
   if (!vfs) die ("can't open %s to read", fileName) ;
-  if (!oneFileCheckSchema (vfs, "P 3 seg\nO S 1 3 INT\n"))
+  if (!oneFileCheckSchemaText (vfs, "P 3 seg\nO S 1 3 INT\n"))
     die ("schema mismatch %s", fileName) ;
   int nSeg = vfs->info['S']->given.count ;
 
   strcpy (fileName+stemLen, ".1link") ;
   OneFile *vfl = oneFileOpenRead (fileName, schema, "link", 1) ;
   if (!vfl) die ("can't open %s to read", fileName) ;
-  if (!oneFileCheckSchema (vfl, "P 4 link\nO L 4 3 INT 4 CHAR 3 INT 4 CHAR\nD O 1 3 INT\n"))
+  if (!oneFileCheckSchemaText (vfl, "P 4 link\nO L 4 3 INT 4 CHAR 3 INT 4 CHAR\nD O 1 3 INT\n"))
     die ("schema mismatch %s", fileName) ;
   int nLink = vfl->info['I']->given.count ;
 
@@ -149,7 +149,7 @@ Gfa *readOneFiles (char *stem)
   strcpy (fileName+stemLen, ".1segseq") ;
   OneFile *vfd = oneFileOpenRead (fileName, schema, "seq", 1) ;
   if (vfd)
-    { if (!oneFileCheckSchema (vfd, "P 3 seq\nO S 1 3 DNA\n"))
+    { if (!oneFileCheckSchemaText (vfd, "P 3 seq\nO S 1 3 DNA\n"))
 	die ("schema mismatch %s", fileName) ;
       while (oneReadLine (vfd))
 	if (vfd->lineType == 'S')
@@ -165,7 +165,7 @@ Gfa *readOneFiles (char *stem)
   strcpy (fileName+stemLen, ".1pth") ;
   OneFile *vfp = oneFileOpenRead (fileName, schema, "pth", 1) ;
   if (vfp)
-    { if (!oneFileCheckSchema (vfp,"P 3 wlk\nO P 1 8 INT_LIST\nD D 1 6 STRING\n"))
+    { if (!oneFileCheckSchemaText (vfp,"P 3 wlk\nO P 1 8 INT_LIST\nD D 1 6 STRING\n"))
 	die ("schema mismatch %s", fileName) ;
       gf->path = arrayCreate (vfp->info['P']->given.count, Path) ;
       if (vfp->info['I'] && vfp->info['I']->given.count)
