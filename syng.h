@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 29 12:53 2023 (rd109)
+ * Last edited: Jun  9 11:03 2023 (rd109)
  * Created: Mon May 29 08:19:18 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -37,7 +37,7 @@ static char *syngSchemaText =
   "O S 1 3 INT               length\n"
   "D K 1 3 INT               kmer count\n"
   "D L 1 8 INT_LIST          list of reads containing the syncmer\n"
-  "D P 1 8 INT_LIST          position of syncmer in each read\n"
+
   "D O 1 6 STRING            orientation of syncmer in read '+'|'-'\n"
   ".\n"
   "P 3 seq                   SEQUENCE\n"
