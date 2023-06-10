@@ -2,7 +2,7 @@
 
 #CFLAGS= -DMACOS -O3
 CFLAGS= -DMACOS -g -target arm64-apple-macos11	# for debugging
-#CFLAGS= -DLINUX -03 -DOMP -fopenmp		# for OMP parallelisation - doesn't compile on Mac
+#CFLAGS= -DLINUX -O3 -DOMP -fopenmp		# for OMP parallelisation - doesn't compile on Mac
 
 ALL=gaffer seqconvert composition ONEview ONEstat syng syngprune
 
