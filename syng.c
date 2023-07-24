@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: May 29 13:45 2023 (rd109)
+ * Last edited: Jul 24 18:31 2023 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -29,7 +29,7 @@ static void canonicaliseLink (int ia, int ib, int *sa, int *sb)
   else if (kb > ka) { *sa = -ib-1 ; *sb = -ia-1 ; }
   else // they are equal
     if (ia >= 0) { *sa = ia ; *sb = ib ; }
-    else { *sa = -ib-1 ; *sb = -ib-1 ; }
+    else { *sa = -ib-1 ; *sb = -ia-1 ; }
 }
 
 static char usage[] =
@@ -47,7 +47,7 @@ int main (int argc, char *argv[])
   char *outPrefix = "syng-out" ;
   SeqIO *sio ;
   OneSchema *schema = oneSchemaCreateFromText (syngSchemaText) ;
-  OneFile *seg, *segseq, *seqsyn, *link ;
+  OneFile *segseq, *seqsyn, *segFile, *linkFile ;
   char *acgt = "acgt", *tgca = "tgca" ; // normal and complemented
 
   timeUpdate (0) ;
@@ -74,8 +74,8 @@ int main (int argc, char *argv[])
   if (!(sio = seqIOopenRead (*argv, dna2indexConv, false)))
     die ("failed to open read sequence file %s", *argv) ;
   char *syncString = new0 (w+k+1, char) ;
-  if (!(seqsyn = oneFileOpenWriteNew (fnameTag (outPrefix,"1seqsyn"), schema, "seqsyn", true, 1)))
-      die ("failed to open %s.1seqsyn to write", outPrefix) ;
+  if (!(seqsyn = oneFileOpenWriteNew (fnameTag (outPrefix,"1readsyn"), schema, "readsyn", true, 1)))
+      die ("failed to open %s.1readsyn to write", outPrefix) ;
   oneAddProvenance (seqsyn, "syng", "0.0", getCommandLine()) ;
   oneAddReference (seqsyn, *argv, 0) ; // I don't know what to put for count - maybe 0 is correct?
   Array readSync = arrayCreate(64,I64) ;
@@ -85,14 +85,15 @@ int main (int argc, char *argv[])
   while (seqIOread (sio))
     { char* seq = sqioSeq(sio) ;
       SeqhashIterator *sit = syncmerIterator (sh, seq, sio->seqLen) ;
-      int pos, iSync, iLastSync, iLink ;
+      int pos, lastPos, iSync, iLastSync, iLink ;
+      U64 smer ;
       arrayMax(readSync) = 0 ; arrayMax(readPos) = 0 ; arrayMax(readDir) = 0 ;
-      while (syncmerNext (sit, 0, &pos, 0))
+      while (syncmerNext (sit, &smer, &pos, 0))
 	{ array(readPos,arrayMax(readPos),I64) = pos ;
 	  int i = pos-1, j = pos+w+k ; while (seq[++i] == 3 - seq[--j]) ;
 	  if (seq[i] < 3 - seq[j])
 	    { array(readDir,arrayMax(readDir),char) = '+' ;
-	      //	      printf ("+ pos %d i %d %c %c\n", pos, i, acgt[seq[i]], acgt[seq[j]]) ;
+	      // printf ("+ pos %d i %d %c %c\n", pos, i, acgt[seq[i]], acgt[seq[j]]) ;
 	      for (i = 0 ; i < w+k ; ++i) syncString[i] = acgt[seq[pos+i]] ;
 	      dictAdd (syncDict, syncString, &iSync) ;
 	      arrayp(syncs,iSync,Sync)->n++ ;
@@ -114,16 +115,25 @@ int main (int argc, char *argv[])
 	      if (hashAdd (linkHash, HASH_INT2(sa,sb), &iLink))
 		{ link = arrayp(links,iLink,Link) ;
 		  link->sa = sa ; link->sb = sb ;
+		  link->overlap = w + k - (pos - lastPos) ;
 		}
-	      else link = arrp(links,iLink,Link) ;
+	      else
+		{ link = arrp(links,iLink,Link) ;
+		  if (w + k - (pos - lastPos) != link->overlap)
+		    fprintf (stderr, "inconsistent overlap segment %d to %d: %d != %d\n",
+			     sa, sb, w + k - (pos - lastPos), link->overlap) ;
+		}
 	      ++link->n ; 
 	    }
 	  iLastSync = iSync ;
+	  lastPos = pos ;
 	}
-      oneWriteLine (seqsyn, 'S', arrayMax(readSync), arrp(readSync,0,I64)) ;
-      oneWriteLine (seqsyn, 'P', arrayMax(readPos), arrp(readPos,0,I64)) ;
-      oneWriteLine (seqsyn, 'O', arrayMax(readDir), arrp(readDir,0,char)) ;
-      oneInt(seqsyn, 0) = nSeq ; oneWriteLine (seqsyn, 'R', 0, 0) ;
+      if (arrayMax(readSync))
+	{ oneWriteLine (seqsyn, 'S', arrayMax(readSync), arrp(readSync,0,I64)) ;
+	  oneWriteLine (seqsyn, 'P', arrayMax(readPos), arrp(readPos,0,I64)) ;
+	  oneWriteLine (seqsyn, 'O', arrayMax(readDir), arrp(readDir,0,char)) ;
+	  oneInt(seqsyn, 0) = nSeq ; oneWriteLine (seqsyn, 'R', 0, 0) ;
+	}
       nSeq++ ; totSeq += sio->seqLen ; totSync += arrayMax(readSync) ;
     }
 
@@ -136,19 +146,19 @@ int main (int argc, char *argv[])
   arrayDestroy (readPos) ;
   arrayDestroy (readDir) ;
 
-  if (!(seg = oneFileOpenWriteNew (fnameTag (outPrefix,"1seg"), schema, "seg", true, 1)))
-    die ("failed to open %s.1seg to write", outPrefix) ;
-  oneAddProvenance (seg, "syng", "0.0", getCommandLine()) ;
+  if (!(segFile = oneFileOpenWriteNew (fnameTag (outPrefix,"1syncmer"), schema, "syncmer", true, 1)))
+    die ("failed to open %s.1syncmer to write", outPrefix) ;
+  oneAddProvenance (segFile, "syng", "0.0", getCommandLine()) ;
   int i ; 
   for (i = 0 ; i < arrayMax(syncs) ; ++i)
     { Sync *s = arrp(syncs, i, Sync) ;
-      oneInt(seg,0) = w+k ; oneWriteLine (seg, 'S', 0, 0) ;
-      oneInt(seg,0) = s->n ; oneWriteLine (seg, 'K', 0, 0) ;
+      oneInt(segFile,0) = w+k ; oneWriteLine (segFile, 'S', 0, 0) ;
+      oneInt(segFile,0) = s->n ; oneWriteLine (segFile, 'K', 0, 0) ;
     }
-  oneFileClose (seg) ;
+  oneFileClose (segFile) ;
 
-  if (!(segseq = oneFileOpenWriteNew (fnameTag (outPrefix,"1segseq"), schema, "segseq", true, 1)))
-    die ("failed to open %s.1segseq to write", outPrefix) ;
+  if (!(segseq = oneFileOpenWriteNew (fnameTag (outPrefix,"1syncseq"), schema, "syncseq", true, 1)))
+    die ("failed to open %s.1syncseq to write", outPrefix) ;
   oneAddProvenance (segseq, "syng", "0.0", getCommandLine()) ;
   for (i = 0 ; i < dictMax(syncDict) ; ++i)
     oneWriteLine (segseq, 'S', w+k, dictName (syncDict, i)) ;
