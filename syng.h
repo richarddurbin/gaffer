@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Jun  9 11:03 2023 (rd109)
+ * Last edited: Jul 24 18:08 2023 (rd109)
  * Created: Mon May 29 08:19:18 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -22,6 +22,7 @@ typedef struct {
 typedef struct {
   int sa, sb ;          // syncs, encode as -x-1 if -ve orientation, made canonical as below
   int n ;		// number of copies of the link
+  int overlap ;
 } Link ;
 
 Array syncs ;
@@ -34,17 +35,23 @@ static char *syngSchemaText =
   ".\n"
   "P 3 seg                   SEGMENT file\n"
   "S 7 syncmer               file of syncmers\n"
+  "D h 3 3 INT 3 INT 3 INT   k, w, seed for the seqhash - here k = smer length, w = syncmer length+1\n"
   "O S 1 3 INT               length\n"
   "D K 1 3 INT               kmer count\n"
-  "D L 1 8 INT_LIST          list of reads containing the syncmer\n"
-
-  "D O 1 6 STRING            orientation of syncmer in read '+'|'-'\n"
+  //  "D L 1 8 INT_LIST          list of reads containing the syncmer\n"
+  //  "D O 1 6 STRING            orientation of syncmer in read '+'|'-'\n"
   ".\n"
   "P 3 seq                   SEQUENCE\n"
-  "S 6 segseq                segment sequences - objects are 1:1 with those in seg file\n"
+  "S 6 segseq                segment sequence - objects are 1:1 with those in seg file\n"
+  "S 7 syncseq               syncmer sequence\n"
+  "S 7 readseq               read sequence\n"
+  "S 9 contigseq             contig sequence\n"
   "O S 1 3 DNA               sequence of the syncmer\n"
   ".\n"
   "P 6 seqsyn                sequences of syncmers\n"
+  "S 7 readsyn               read sequence in syncmers\n"
+  "S 9 contigsyn             contig sequence in syncmers\n"
+  "D h 3 3 INT 3 INT 3 INT   k, w, seed for the seqhash - here k = smer length, w = syncmer length+1\n"
   "O S 1 8 INT_LIST          sequence: list of syncmer seg ids\n"
   "D P 1 8 INT_LIST          positions of the syncmers\n"
   "D O 1 6 STRING            orientations of the syncmers\n"
