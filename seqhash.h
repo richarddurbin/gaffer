@@ -5,7 +5,7 @@
  * Description: header file for seqhash package - minimizers and moshers
  * Exported functions: see below
  * HISTORY:
- * Last edited: May 17 15:48 2023 (rd109)
+ * Last edited: Jul 24 14:38 2023 (rd109)
  * Created: Mon Mar  5 08:43:45 2018 (rd)
  *-------------------------------------------------------------------
  */
@@ -25,7 +25,7 @@ typedef struct {
 typedef struct {
   Seqhash *sh ;
   char *s, *sEnd ;     		/* sequence currently being hashed, end marker */
-  U64 h, hRC ;			/* current hash values */
+  U64 h, hRC ;			/* current k-mer values */
   U64 *hash ;			/* buffer of length w holding hashes for current window */
   bool *isForward ;		/* buffer of length w holding isForward for current window */
   int base ;			/* start of buf in sequence */
@@ -67,7 +67,7 @@ SeqhashIterator *syncmerIterator (Seqhash *sh, char *s, int len) ;
 bool syncmerNext (SeqhashIterator *si, U64 *kmer, int *pos, bool *isF) ;
 
 // utilities
-static inline U64 seqhash (Seqhash *sh, U64 k) { return ((k * sh->factor1) >> sh->shift1) ; }
+static inline U64 kHash (Seqhash *sh, U64 k) { return ((k * sh->factor1) >> sh->shift1) ; }
 char *seqString (U64 kmer, int len)  ;
 static inline char* seqhashString (Seqhash *sh, U64 kmer) { return seqString (kmer, sh->k) ; }
 

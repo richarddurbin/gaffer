@@ -7,7 +7,7 @@
 	see test main() at end for standard usage pattern
  * Exported functions: see seqhash.h
  * HISTORY:
- * Last edited: May 29 13:44 2023 (rd109)
+ * Last edited: Jul 24 16:43 2023 (rd109)
  * Created: Sat Feb 24 19:20:18 2018 (rd)
  *-------------------------------------------------------------------
  */
@@ -58,8 +58,8 @@ void seqhashReport (Seqhash *sh, FILE *f)
 /************** basic hash functions *************/
 
 static inline U64 hashRC (SeqhashIterator *si, bool *isForward)
-{ U64 hashF = seqhash (si->sh, si->h) ;
-  U64 hashR = seqhash (si->sh, si->hRC) ;
+{ U64 hashF = kHash (si->sh, si->h) ;
+  U64 hashR = kHash (si->sh, si->hRC) ;
 #ifdef DEBUG
   printf ("hashRC: h %lx hRC %lx hashF %lx hashR %lx\n", si->h, si->hRC, hashF, hashR) ;
 #endif
