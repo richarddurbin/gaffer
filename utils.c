@@ -5,7 +5,7 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: May 15 14:44 2023 (rd109)
+ * Last edited: Jul 27 14:25 2023 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
@@ -161,6 +161,7 @@ FILE *fopenTag (char* root, char* tag, char* mode)
 /***************** rusage for timing information ******************/
 
 #include <sys/resource.h>
+#include <sys/time.h>
 #ifndef RUSAGE_SELF     /* to prevent "RUSAGE_SELF redefined" gcc warning, fixme if this is more intricate */
 #define RUSAGE_SELF 0
 #endif
@@ -192,14 +193,17 @@ struct timeval {
 #endif /* RUSAGE STRUCTURE_DEFINITIONS */
 
 static struct rusage rOld, rFirst ;
+static struct timeval tOld, tFirst ;
 
 void timeUpdate (FILE *f)
 {
   static bool isFirst = 1 ;
   struct rusage rNew ;
+  struct timeval tNew ;
   int secs, usecs ;
 
   getrusage (RUSAGE_SELF, &rNew) ;
+  gettimeofday(&tNew, 0) ;
   if (!isFirst)
     { secs = rNew.ru_utime.tv_sec - rOld.ru_utime.tv_sec ;
       usecs =  rNew.ru_utime.tv_usec - rOld.ru_utime.tv_usec ;
@@ -209,18 +213,24 @@ void timeUpdate (FILE *f)
       usecs =  rNew.ru_stime.tv_usec - rOld.ru_stime.tv_usec ;
       if (usecs < 0) { usecs += 1000000 ; secs -= 1 ; }
       fprintf (f, "\tsystem\t%d.%06d", secs, usecs) ;
+      secs = tNew.tv_sec - tOld.tv_sec ;
+      usecs =  tNew.tv_usec - tOld.tv_usec ;
+      if (usecs < 0) { usecs += 1000000 ; secs -= 1 ; }
+      fprintf (f, "\telapsed\t%d.%06d", secs, usecs) ;
+      fprintf (f, "\tallocated\t%.2f", totalAllocated/1000000000.0) ;   
       fprintf (f, "\tmax_RSS\t%ld", rNew.ru_maxrss - rOld.ru_maxrss) ;
-      fprintf (f, "\tmemory\t%li", totalAllocated) ;   
       fputc ('\n', f) ;
     }
   else
     { rFirst = rNew ;
+      tFirst = tNew ;
       isFirst = false ;
     }
 
   rOld = rNew ;
+  tOld = tNew ;
 }
 
-void timeTotal (FILE *f) { rOld = rFirst ; timeUpdate (f) ; }
+void timeTotal (FILE *f) { rOld = rFirst ; tOld = tFirst ; timeUpdate (f) ; }
 
 /********************* end of file ***********************/
