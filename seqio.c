@@ -5,7 +5,7 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: May 27 11:31 2023 (rd109)
+ * Last edited: Jul 26 13:37 2023 (rd109)
  * * Dec 15 09:45 2022 (rd109): separated out 2bit packing/unpacking into SeqPack
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
@@ -225,7 +225,6 @@ static void bufHardRefill (SeqIO *si, U64 n) /* like bufRefill() but for bufConf
 
 bool seqIOread (SeqIO *si)
 {
-
 #ifdef ONEIO
   if (si->type == ONE)
     { OneFile *vf = (OneFile*) si->handle ;
