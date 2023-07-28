@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: May 29 18:48 2023 (rd109)
+ * Last edited: Jun 10 08:06 2023 (rd109)
  * Created: Mon May 29 08:22:38 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -55,6 +55,12 @@ void view (int object, Array units, int min, int max)
 
 OneFile *readsIn, *readsOut ;
 
+typedef struct {
+  OneFile *seqsyn ;
+  OneFile *readsIn ;
+  OneFile *readsOut ; // share the kCounts Array as a read-only global
+} Thread_info ;
+
 static size_t fieldSize[128] ;
 
 static inline void transferLine (OneFile *vfIn, OneFile *vfOut)
@@ -90,7 +96,8 @@ static char usage[] =
   "Usage: syngprune <options> <oncode file prefix> <read sequence file>\n"
   "  -min <min>    : [0]\n"
   "  -max <max>    : [1]\n"
-  "  -v            : view\n" ;
+  "  -v            : view\n"
+  "  -T <nthreads> : [1]\n" ;
 
 int main (int argc, char **argv)
 {
@@ -99,6 +106,7 @@ int main (int argc, char **argv)
   int i, object ;
   bool isView = false ;
   int nFiltered = 0 ;
+  int nThreads = 1 ;
 
   timeUpdate (0) ;
 
@@ -108,11 +116,15 @@ int main (int argc, char **argv)
   while (argc > 0 && **argv == '-')
     if (!strcmp (*argv, "-min") && argc > 1) { min = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
     else if (!strcmp (*argv, "-max") && argc > 1) { max = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
+    else if (!strcmp (*argv, "-T") && argc > 1) { nThreads = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
     else if (!strcmp (*argv, "-v")) { isView = true ; argc -= 1 ; argv += 1 ; }
     else die ("unknown parameter %s\n%s", *argv, usage) ;
 
-  if (argc != 2) die ("need two arguments not %d\n%s", argc, usage) ;
+  if (!argc || argc > 2) die ("bad number of arguments %d\n%s", argc, usage) ;
 
+  if (isView && nThreads > 1) die ("can only use 1 thread in view mode\n") ;
+  if (nThreads < 1 || nThreads > 16) die ("nThreads %d must be between 1 and 16", nThreads) ;
+  
   if (!(seg = oneFileOpenRead (fnameTag (argv[0],"1seg"), 0, "seg", 1)))
     die ("failed to open %s.1seg", argv[0]) ;
   Array kCounts = arrayCreate(seg->info['K']->given.count, int) ;
@@ -120,19 +132,20 @@ int main (int argc, char **argv)
     if (seg->lineType == 'K') array(kCounts, arrayMax(kCounts), int) = oneInt(seg,0) ;
   oneFileClose (seg) ;
   fprintf (stderr, "read counts for %d segments\n", arrayMax(kCounts)) ;
-
+  
   if (!isView)
-    { if (!(readsIn = oneFileOpenRead (argv[1], 0, "seq", 1)))
+    { if (argc != 2) die ("need two arguments when pruning, not %d\n%s", argc, usage) ;
+      if (!(readsIn = oneFileOpenRead (argv[1], 0, "seq", nThreads)))
 	die ("failed to open reads file %s", argv[1]) ;
       for (i = 0 ; i < 128 ; ++i)
 	if (readsIn->info[i]) fieldSize[i] = readsIn->info[i]->nField*sizeof(OneField) ;
-      if (!(readsOut = oneFileOpenWriteFrom ("-", readsIn, true, 1)))
+      if (!(readsOut = oneFileOpenWriteFrom ("-", readsIn, true, nThreads)))
 	die ("failed to open stdout to write to", argv[1]) ;
       oneAddProvenance (readsOut, "syngprune", "0.0", getCommandLine()) ;
     }
 
   Array units = arrayCreate (64,Unit) ;
-  if (!(seqsyn = oneFileOpenRead (fnameTag (argv[0],"1seqsyn"), 0, "seqsyn", 1)))
+  if (!(seqsyn = oneFileOpenRead (fnameTag (argv[0],"1seqsyn"), 0, "seqsyn", nThreads)))
     die ("failed to open %s.1seqsyn to write", argv[0]) ;
   while (oneReadLine (seqsyn))
     if (seqsyn->lineType == 'S')
@@ -158,7 +171,7 @@ int main (int argc, char **argv)
       fprintf (stderr, "filtered %d of %d objects\n", nFiltered, (int)seqsyn->object+1) ;
       oneFileClose (readsIn) ;
       oneFileClose (readsOut) ;
-  }
+    }
   oneFileClose (seqsyn) ;
   
   fprintf (stderr, "total: ") ; timeTotal (stderr) ;
