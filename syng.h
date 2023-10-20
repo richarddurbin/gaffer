@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Jul 24 18:08 2023 (rd109)
+ * Last edited: Aug  4 09:05 2023 (rd109)
  * Created: Mon May 29 08:19:18 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -16,15 +16,23 @@
 #include "hash.h"
 
 typedef struct {
+  int w, k, seed ;
+} Params ;
+
+typedef struct {
   int n ;		// number of copies of the syncmer
 } Sync ;
 
 typedef struct {
-  int sa, sb ;          // syncs, encode as -x-1 if -ve orientation, made canonical as below
-  int n ;		// number of copies of the link
-  int overlap ;
+  I64 sa, sb ;          // syncs, encode as -x-1 if -ve orientation, made canonical as below
+  I64 n ;		// number of copies of the link
+  I64 overlap ;
 } Link ;
 
+Params params ;
+static int PARAMS_W_DEFAULT = 1023 ;
+static int PARAMS_K_DEFAULT = 16 ;
+static int PARAMS_SEED_DEFAULT = 7 ;
 Array syncs ;
 Array links ;
 DICT  *syncDict ;
