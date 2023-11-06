@@ -34,6 +34,7 @@ void addRead( SyncmerRead& v, const SyncmerRead& thisRead )
 	v.insert( v.end(), thisRead.begin(), thisRead.end() );
 	v.push_back(END_READ);
 }
+
 std::string decode( int_text s )
 {
 	if (s==END_DATA) return "#";
@@ -46,6 +47,14 @@ std::string decode( int_text s )
 	return d;
 }
 
+struct SyncmerIndex
+{
+	SyncmerIndex(size_t n) : SA(n), LCP(n), DA(n) {}
+
+	std::vector<uint_t> SA;
+	std::vector<int_t> LCP;
+	std::vector<int_da> DA;
+};
 
 
 
@@ -125,15 +134,91 @@ void parseFile( const char* fileName, std::vector<int_text>& v )
 }
 
 
-int main(int argc, char *argv[]){
-
-if (argc!=2)
+void scanIndex( const SyncmerIndex& s, const SyncmerRead& v )
 {
-	std::cerr << "Usage: " << argv[0] << " oneFile" << std::endl;
-	return -1;
+//if (n>100) n=100; // avoid printing too much;
+	std::cout << "# i\tSA\tDA\tLCP\tBWT\tsorted_char\tnext_char\tlcp_char\textend_char\tstring_char" << std::endl;
+	std::cout << "# i\t- index of entry" << std::endl;
+	std::cout << "# SA[i]\t - suffix array (position of i-th smallest suffix)" << std::endl;
+	std::cout << "# DA[i]\t - document array (which read i-th smallest suffix is from)" << std::endl;
+	std::cout << "# LCP[i]\t - LCP array (common starting chars between i-th and (i-1)th smallest suffix)" << std::endl;
+	std::cout << "# first[i]\t - starting char of i-th smallest suffix" << std::endl;
+	std::cout << "# second[i]\t - second char of i-th smallest suffix" << std::endl;
+	std::cout << "# lcp_next[i]\t - first char in i-th smallest that differs from (i+1)st - will be $ for maximal match" << std::endl;
+	std::cout << "# lcp_prev[i]\t - first char in i-th smallest that differs from (i-1)th" << std::endl;
+	// fields in order
+
+	size_t n(s.SA.size());
+
+	for(int i = 0; i < n; ++i)
+	{
+	//    char j = (SA[i])? Text[SA[i]-1]:'#';
+	//    if(j==1) j = '$';
+	  int_text j = (s.SA[i])? v[s.SA[i]-1]:END_DATA;
+	  int_text k = (s.SA[i]+1==n)?END_DATA:v[s.SA[i]+1];
+	  int_text l;
+	  std::string dl;
+	  if (i==n-1)
+	    l=END_DATA;
+	  else if (s.SA[i]+s.LCP[i+1]==n)
+	    l=END_DATA;
+	  else
+	    l=v[s.SA[i]+s.LCP[i+1]];
+	  dl=decode(l); if (dl!="$" && (s.LCP[i+1]!=0)) dl="ZZ"+dl;
+
+	  int_text ll;
+	  if (s.SA[i]+s.LCP[i]==n)
+	    ll=END_DATA;
+	  else
+	    ll=v[s.SA[i]+s.LCP[i]];
+	  //  dl=decode(l); if (dl!="$" && (LCP[i+1]!=0)) dl="ZZ"+dl;
+	  
+#ifdef XXX	  
+	  std::cout << i << "\t" 
+		    << SA[i] << "\t" 
+		    << DA[i] << "\t" 
+		    << LCP[i] << "\t"
+		    << j << " " << decode(j) << "\t"
+		    << v[SA[i]] << " " << decode(v[SA[i]]) << "\t"
+		    << k << " " << decode(k) << "\t"
+		    << l << " " << dl << "\t"
+		    << ll << " " << decode(ll) << "\t"
+		    << v[i] << " " << decode(v[i]) << std::endl;
+#endif
+	  
+		// more brief output - just show decoded syncmers and don't show v[i]
+
+	  std::cout << i << "\t" 
+		    << s.SA[i] << "\t" 
+		    << s.DA[i] << "\t" 
+		    << s.LCP[i] << "\t"
+		    << decode(j) << "\t"
+		    << decode(v[s.SA[i]]) << "\t"
+		    << decode(k) << "\t"
+		    << dl << "\t"
+		    << decode(ll) << "\t"
+		    << std::endl;
+
+
+	}
+
+
 }
 
 
+
+int main(int argc, char *argv[]){
+
+if ((argc!=2)&&(argc!=3))
+{
+	std::cerr << "Usage: " << argv[0] << " oneFile outPrefix: build index from oneFile, store index in outPrefix.*" << std::endl;
+	std::cerr << "Usage: " << argv[0] << " outPrefix: read index from outPrefix.*, output ASCII analysis" << std::endl;
+	return -1;
+}
+//else if (argc==3)
+//{
+//
+//}
 	#if DEBUG
 		printf("sizeof(int_t) = %zu bytes\n", sizeof(int_t));
 	#endif
@@ -150,10 +235,6 @@ std::vector<int_text> v;
 uint_t alphabetSize=999999;
 
 parseFile( argv[1], v );
-
-
-
-
 
 /** @brief Computes the suffix array SA (LCP, DA) of T^cat in s[0..n-1]
  *
@@ -172,20 +253,24 @@ int gsacak_int(int_text *s, uint_t *SA, int_t *LCP, int_da *DA, uint_t n, uint_t
 	std::cout << "# Read " << n << " characters in all" <<std::endl;
 
 	// allocate
-	std::vector<uint_t> SA(n);
-	std::vector<int_t> LCP(n);
-	std::vector<int_da> DA(n);
+	SyncmerIndex s(n);
+//	std::vector<uint_t> SA(n);
+//	std::vector<int_t> LCP(n);
+//	std::vector<int_da> DA(n);
 
 //	uint_t *SA = (uint_t *)malloc(n * sizeof(uint_t));
 //	int_t *LCP = (int_t *)malloc(n * sizeof(int_t));
 //	int_da *DA = (int_da *)malloc(n * sizeof(int_da));
 	std::cout << "# About to build index" << std::endl;
 	// sort
-	gsacak_int((int_text*)&v[0], (uint_t*)&SA[0], (int_t*)&LCP[0], (int_da*)&DA[0], n, alphabetSize);
+	gsacak_int((int_text*)&v[0], (uint_t*)&s.SA[0], (int_t*)&s.LCP[0], (int_da*)&s.DA[0], n, alphabetSize);
 
 //	gsacak_int((int_text*)&v[0], (uint_t*)SA, LCP, DA, n, alphabetSize);
 //	gsacak_int((int_text*)&v[0], (uint_t*)SA, NULL, NULL, n, 99);
 
+	scanIndex(s, v);
+
+#ifdef XXX
 //if (n>100) n=100; // avoid printing too much;
 	std::cout << "# i\tSA\tDA\tLCP\tBWT\tsorted_char\tnext_char\tlcp_char\textend_char\tstring_char" << std::endl;
 	std::cout << "# i\t- index of entry" << std::endl;
@@ -252,7 +337,8 @@ int gsacak_int(int_text *s, uint_t *SA, int_t *LCP, int_da *DA, uint_t n, uint_t
 
 	}
 
-	printf("about to free\n");
+#endif
+//	printf("about to free\n");
 	// deallocate
 //	free(SA);
 //	free(DA);
