@@ -3922,7 +3922,7 @@ static void *myalloc(size_t size)
 { void *p;
 
   p = malloc(size);
-  if (p == NULL) die("myalloc failure requesting %d bytes", size);
+  if (p == NULL && size != 0 ) die("myalloc failure requesting %d bytes", size);
   nAlloc     += 1;
   totalAlloc += size;
   return (p);
@@ -3932,7 +3932,7 @@ static void *mycalloc(size_t number, size_t size)
 { void *p;
 
   p = calloc(number,size);
-  if (p == NULL) die("mycalloc failure requesting %d objects of size %d", number, size);
+  if (p == NULL && size != 0 ) die("mycalloc failure requesting %d objects of size %d", number, size);
   nAlloc     += 1;
   totalAlloc += size*number;
   return p;
