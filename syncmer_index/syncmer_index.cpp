@@ -73,7 +73,7 @@ struct SyncmerIndex
 // reverse complement a read. For syncmers, the operation consists of:
 // 1. reversing the order of the syncmers
 // 2. flipping the sense bit of each syncmer (XOR of least significant bit)
-// NB this doesn't work if this Read is a collection as it will mess up the end markers
+// NB this doesn't work if thisRead is a collection as it will mess up the end markers
 void reverseComplement( SyncmerRead& thisRead )
 {
 	reverse( thisRead.begin(), thisRead.end());
@@ -81,7 +81,7 @@ void reverseComplement( SyncmerRead& thisRead )
 }
 
 
-void parseFileONE( const char* fileName, std::vector<int_text>& v )
+uint_t parseFileONE( const char* fileName, std::vector<int_text>& v )
 {
 	OneSchema* vs=NULL;
 	char* fileType=NULL;
@@ -96,6 +96,7 @@ void parseFileONE( const char* fileName, std::vector<int_text>& v )
 	int numReads=0;
 	SyncmerRead thisRead;
 	char* strand;
+	int_text maxSyncmer=0;
 
 	while (oneReadLine(in))
 	{     
@@ -119,7 +120,7 @@ void parseFileONE( const char* fileName, std::vector<int_text>& v )
 			strand=oneString(in);
 			for (std::size_t i=0;i<thisRead.size();i++)
 			{
-
+				if (thisRead[i]>maxSyncmer) maxSyncmer=thisRead[i];
 				assert( (strand[i]=='+')||(strand[i]=='-'));
 				thisRead[i]<<=1;
 				thisRead[i]|=(1*(strand[i]=='-'));
@@ -136,6 +137,12 @@ void parseFileONE( const char* fileName, std::vector<int_text>& v )
 	std::cout << "read " << numSyncmers << " syncmers from " << numReads << " reads" << std::endl;
 
 	oneFileClose(in);
+
+	maxSyncmer<<=1;
+	maxSyncmer|=1;
+	maxSyncmer+=3; // I think this is END_READ and END_DATA plus 1 because syncmers start at 0
+	std::cout << "alphabet size is " << maxSyncmer << std::endl;
+	return maxSyncmer;
 }
 
 
@@ -302,11 +309,8 @@ int main(int argc, char *argv[])
 // gsacak(s, SA, LCP,  DA, n)   //computes SA, LCP and DA
 
 	std::vector<int_text> v;
-	uint_t alphabetSize=999999;
-
-//	parseFile( argv[1], v );
-	parseFileONE( argv[1], v );
-
+	uint_t alphabetSize=parseFileONE( argv[1], v );
+//	alphabetSize+=2;
 /** @brief Computes the suffix array SA (LCP, DA) of T^cat in s[0..n-1]
  *
  *  @param s		input concatenated string, using separators s[i]=1 and with s[n-1]=0
