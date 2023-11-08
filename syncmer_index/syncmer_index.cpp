@@ -14,6 +14,17 @@
 #include <cassert>
 #include <algorithm>
 
+
+
+extern "C"
+{
+#include "../utils.h"
+#include "../ONElib.h"
+}
+
+
+//extern "C" oneFileOpenRead(char const*, OneSchema*, char const*, int);
+
 #ifndef DEBUG
 	#define DEBUG 0
 #endif
@@ -67,6 +78,64 @@ void reverseComplement( SyncmerRead& thisRead )
 {
 	reverse( thisRead.begin(), thisRead.end());
 	for (auto& i : thisRead ) i ^= 1;
+}
+
+
+void parseFileONE( const char* fileName, std::vector<int_text>& v )
+{
+	OneSchema* vs=NULL;
+	char* fileType=NULL;
+
+	OneFile *in = oneFileOpenRead(fileName, vs, fileType, 1);
+   	if (in == NULL) 
+ 	{ fprintf(stderr,"Can't open sequence file %s to read\n",fileName);
+	   exit (1);
+	}
+	int numEntries=0;
+	int numSyncmers=0;
+	int numReads=0;
+	SyncmerRead thisRead;
+	char* strand;
+
+	while (oneReadLine(in))
+	{     
+	//	std::cout << in->lineType << std::endl;
+		if (in->lineType == 'S')
+       	{ 
+			numReads++;
+			numEntries=oneLen(in);
+			thisRead.clear();
+			I64* r=oneIntList(in);
+			for (int i(0);i<numEntries;i++,r++ )
+			{
+				thisRead.push_back(*r);
+				numSyncmers++;
+			}
+       	//  reverseComplement(oneString(in), oneLen(in)); // user-provided, assume acts in place
+        	// oneWriteLine(out, 'S', oneLen(in), oneString(in));
+       	}
+     	else if (in->lineType == 'O')
+		{
+			strand=oneString(in);
+			for (std::size_t i=0;i<thisRead.size();i++)
+			{
+
+				assert( (strand[i]=='+')||(strand[i]=='-'));
+				thisRead[i]<<=1;
+				thisRead[i]|=(1*(strand[i]=='-'));
+				thisRead[i]+=2;
+			}
+			addRead( v, thisRead);
+			reverseComplement( thisRead );
+			addRead( v, thisRead);
+		}
+
+	}
+
+	v.push_back(END_DATA); // end of data marker
+	std::cout << "read " << numSyncmers << " syncmers from " << numReads << " reads" << std::endl;
+
+	oneFileClose(in);
 }
 
 
@@ -207,14 +276,15 @@ void scanIndex( const SyncmerIndex& s, const SyncmerRead& v )
 
 
 
-int main(int argc, char *argv[]){
-
-if ((argc!=2)&&(argc!=3))
+int main(int argc, char *argv[])
 {
-	std::cerr << "Usage: " << argv[0] << " oneFile outPrefix: build index from oneFile, store index in outPrefix.*" << std::endl;
-	std::cerr << "Usage: " << argv[0] << " outPrefix: read index from outPrefix.*, output ASCII analysis" << std::endl;
-	return -1;
-}
+
+	if ((argc!=2)&&(argc!=3))
+	{
+		std::cerr << "Usage: " << argv[0] << " oneFile outPrefix: build index from oneFile, store index in outPrefix.*" << std::endl;
+		std::cerr << "Usage: " << argv[0] << " outPrefix: read index from outPrefix.*, output ASCII analysis" << std::endl;
+		return -1;
+	}
 //else if (argc==3)
 //{
 //
@@ -231,10 +301,11 @@ if ((argc!=2)&&(argc!=3))
 // gsacak(s, SA, NULL, DA, n)   //computes SA and DA
 // gsacak(s, SA, LCP,  DA, n)   //computes SA, LCP and DA
 
-std::vector<int_text> v;
-uint_t alphabetSize=999999;
+	std::vector<int_text> v;
+	uint_t alphabetSize=999999;
 
-parseFile( argv[1], v );
+//	parseFile( argv[1], v );
+	parseFileONE( argv[1], v );
 
 /** @brief Computes the suffix array SA (LCP, DA) of T^cat in s[0..n-1]
  *
@@ -254,13 +325,7 @@ int gsacak_int(int_text *s, uint_t *SA, int_t *LCP, int_da *DA, uint_t n, uint_t
 
 	// allocate
 	SyncmerIndex s(n);
-//	std::vector<uint_t> SA(n);
-//	std::vector<int_t> LCP(n);
-//	std::vector<int_da> DA(n);
 
-//	uint_t *SA = (uint_t *)malloc(n * sizeof(uint_t));
-//	int_t *LCP = (int_t *)malloc(n * sizeof(int_t));
-//	int_da *DA = (int_da *)malloc(n * sizeof(int_da));
 	std::cout << "# About to build index" << std::endl;
 	// sort
 	gsacak_int((int_text*)&v[0], (uint_t*)&s.SA[0], (int_t*)&s.LCP[0], (int_da*)&s.DA[0], n, alphabetSize);
@@ -270,80 +335,7 @@ int gsacak_int(int_text *s, uint_t *SA, int_t *LCP, int_da *DA, uint_t n, uint_t
 
 	scanIndex(s, v);
 
-#ifdef XXX
-//if (n>100) n=100; // avoid printing too much;
-	std::cout << "# i\tSA\tDA\tLCP\tBWT\tsorted_char\tnext_char\tlcp_char\textend_char\tstring_char" << std::endl;
-	std::cout << "# i\t- index of entry" << std::endl;
-	std::cout << "# SA[i]\t - suffix array (position of i-th smallest suffix)" << std::endl;
-	std::cout << "# DA[i]\t - document array (which read i-th smallest suffix is from)" << std::endl;
-	std::cout << "# LCP[i]\t - LCP array (common starting chars between i-th and (i-1)th smallest suffix)" << std::endl;
-	std::cout << "# first[i]\t - starting char of i-th smallest suffix" << std::endl;
-	std::cout << "# second[i]\t - second char of i-th smallest suffix" << std::endl;
-	std::cout << "# lcp_next[i]\t - first char in i-th smallest that differs from (i+1)st - will be $ for maximal match" << std::endl;
-	std::cout << "# lcp_prev[i]\t - first char in i-th smallest that differs from (i-1)th" << std::endl;
-	// fields in order
 
-
-
-	for(int i = 0; i < n; ++i)
-	{
-	//    char j = (SA[i])? Text[SA[i]-1]:'#';
-	//    if(j==1) j = '$';
-	  int_text j = (SA[i])? v[SA[i]-1]:END_DATA;
-	  int_text k = (SA[i]+1==n)?END_DATA:v[SA[i]+1];
-	  int_text l;
-	  std::string dl;
-	  if (i==n-1)
-	    l=END_DATA;
-	  else if (SA[i]+LCP[i+1]==n)
-	    l=END_DATA;
-	  else
-	    l=v[SA[i]+LCP[i+1]];
-	  dl=decode(l); if (dl!="$" && (LCP[i+1]!=0)) dl="ZZ"+dl;
-
-	  int_text ll;
-	  if (SA[i]+LCP[i]==n)
-	    ll=END_DATA;
-	  else
-	    ll=v[SA[i]+LCP[i]];
-	  //  dl=decode(l); if (dl!="$" && (LCP[i+1]!=0)) dl="ZZ"+dl;
-	  
-#ifdef XXX	  
-	  std::cout << i << "\t" 
-		    << SA[i] << "\t" 
-		    << DA[i] << "\t" 
-		    << LCP[i] << "\t"
-		    << j << " " << decode(j) << "\t"
-		    << v[SA[i]] << " " << decode(v[SA[i]]) << "\t"
-		    << k << " " << decode(k) << "\t"
-		    << l << " " << dl << "\t"
-		    << ll << " " << decode(ll) << "\t"
-		    << v[i] << " " << decode(v[i]) << std::endl;
-#endif
-	  
-		// more brief output - just show decoded syncmers and don't show v[i]
-
-	  std::cout << i << "\t" 
-		    << SA[i] << "\t" 
-		    << DA[i] << "\t" 
-		    << LCP[i] << "\t"
-		    << decode(j) << "\t"
-		    << decode(v[SA[i]]) << "\t"
-		    << decode(k) << "\t"
-		    << dl << "\t"
-		    << decode(ll) << "\t"
-		    << std::endl;
-
-
-	}
-
-#endif
-//	printf("about to free\n");
-	// deallocate
-//	free(SA);
-//	free(DA);
-//	free(LCP);
-//	free(Text);
 
 	return 0;
 }
