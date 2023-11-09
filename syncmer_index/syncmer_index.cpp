@@ -18,7 +18,7 @@
 
 extern "C"
 {
-#include "../utils.h"
+//#include "../utils.h"
 #include "../ONElib.h"
 }
 
@@ -61,11 +61,81 @@ std::string decode( int_text s )
 struct SyncmerIndex
 {
 	SyncmerIndex(size_t n) : SA(n), LCP(n), DA(n) {}
+	void save( const char* prefix );
+	void load( const char* prefix );
+
 
 	std::vector<uint_t> SA;
 	std::vector<int_t> LCP;
 	std::vector<int_da> DA;
 };
+
+//gsacak_int((int_text*)&v[0], (uint_t*)&s.SA[0], (int_t*)&s.LCP[0], (int_da*)&s.DA[0], n, alphabetSize);
+
+void SyncmerIndex::save( const char* prefix )
+{
+	FILE* pOut;
+	std::string prefixString(prefix), name;
+	
+	name=prefixString+".sa";
+	std::cerr << "Writing index component to " << name << std::endl; 
+	pOut=fopen(name.c_str(),"wb");
+	assert(pOut!=NULL);
+	assert(fwrite(&SA[0],sizeof(uint_t),SA.size(),pOut)==SA.size());
+	fclose(pOut);
+
+	name=prefixString+".lcp";
+	std::cerr << "Writing index component to " << name << std::endl; 
+	pOut=fopen(name.c_str(),"wb");
+	assert(pOut!=NULL);
+	assert(fwrite(&LCP[0],sizeof(int_t),LCP.size(),pOut)==LCP.size());
+	fclose(pOut);
+
+	name=prefixString+".da";
+	std::cerr << "Writing index component to " << name << std::endl; 
+	pOut=fopen(name.c_str(),"wb");
+	assert(pOut!=NULL);
+	assert(fwrite(&DA[0],sizeof(int_da),DA.size(),pOut)==DA.size());
+	fclose(pOut);
+
+
+}
+
+void SyncmerIndex::load( const char* prefix )
+{
+	FILE* pIn;
+	std::string prefixString(prefix), name;
+	size_t s;
+
+	name=prefixString+".sa";
+	std::cerr << "Reading index component from " << name << std::endl; 
+	pIn=fopen(name.c_str(),"rb");
+	assert(pIn!=NULL);
+	fseek(pIn, 0L, SEEK_END); s=ftell(pIn); rewind(pIn);
+	SA.resize(s/sizeof(uint_t));
+	assert(fread(&SA[0],sizeof(uint_t),SA.size(),pIn)==SA.size());
+	fclose(pIn);
+
+	name=prefixString+".lcp";
+	std::cerr << "Reading index component from " << name << std::endl; 
+	pIn=fopen(name.c_str(),"rb");
+	assert(pIn!=NULL);
+	fseek(pIn, 0L, SEEK_END); s=ftell(pIn); rewind(pIn);
+	LCP.resize(s/sizeof(int_t));
+	assert(fread(&LCP[0],sizeof(int_t),LCP.size(),pIn)==LCP.size());
+	fclose(pIn);
+
+	name=prefixString+".da";
+	std::cerr << "Reading index component from " << name << std::endl; 
+	pIn=fopen(name.c_str(),"rb");
+	assert(pIn!=NULL);
+	fseek(pIn, 0L, SEEK_END); s=ftell(pIn); rewind(pIn);
+	DA.resize(s/sizeof(int_da));
+	assert(fread(&DA[0],sizeof(int_da),DA.size(),pIn)==DA.size());
+	fclose(pIn);
+
+
+}
 
 
 
@@ -286,12 +356,14 @@ void scanIndex( const SyncmerIndex& s, const SyncmerRead& v )
 int main(int argc, char *argv[])
 {
 
-	if ((argc!=2)&&(argc!=3))
+	if ((argc!=4))
 	{
-		std::cerr << "Usage: " << argv[0] << " oneFile outPrefix: build index from oneFile, store index in outPrefix.*" << std::endl;
-		std::cerr << "Usage: " << argv[0] << " outPrefix: read index from outPrefix.*, output ASCII analysis" << std::endl;
+		std::cerr << "Usage: " << argv[0] << " build seqFile.1 outPrefix: build index from oneFile, store index in outPrefix.*" << std::endl;
+		std::cerr << "Usage: " << argv[0] << " scan seqFile.1 outPrefix: load index from outPrefix.*, output ASCII analysis" << std::endl;
 		return -1;
 	}
+
+
 //else if (argc==3)
 //{
 //
@@ -309,7 +381,7 @@ int main(int argc, char *argv[])
 // gsacak(s, SA, LCP,  DA, n)   //computes SA, LCP and DA
 
 	std::vector<int_text> v;
-	uint_t alphabetSize=parseFileONE( argv[1], v );
+	uint_t alphabetSize=parseFileONE( argv[2], v );
 //	alphabetSize+=2;
 /** @brief Computes the suffix array SA (LCP, DA) of T^cat in s[0..n-1]
  *
@@ -324,6 +396,9 @@ int main(int argc, char *argv[])
 int gsacak_int(int_text *s, uint_t *SA, int_t *LCP, int_da *DA, uint_t n, uint_t k);
 
  */
+
+	if (strcmp(argv[1],"build")==0)
+	{	
 	n=v.size();
 	std::cout << "# Read " << n << " characters in all" <<std::endl;
 
@@ -334,12 +409,22 @@ int gsacak_int(int_text *s, uint_t *SA, int_t *LCP, int_da *DA, uint_t n, uint_t
 	// sort
 	gsacak_int((int_text*)&v[0], (uint_t*)&s.SA[0], (int_t*)&s.LCP[0], (int_da*)&s.DA[0], n, alphabetSize);
 
-//	gsacak_int((int_text*)&v[0], (uint_t*)SA, LCP, DA, n, alphabetSize);
-//	gsacak_int((int_text*)&v[0], (uint_t*)SA, NULL, NULL, n, 99);
-
-	scanIndex(s, v);
+	s.save(argv[3]);
 
 
+//	scanIndex(s, v);
+	}
+	else if (strcmp(argv[1],"scan")==0)
+	{
+		SyncmerIndex s(1);
+		s.load(argv[3]);
+		scanIndex(s, v);
+	}
+	else
+	{
+		std::cerr << "could not understand command " << argv[1] << std::endl;
+		return -1;
+	}
 
 	return 0;
 }
