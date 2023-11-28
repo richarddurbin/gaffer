@@ -5,10 +5,12 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: Jul 27 16:02 2023 (rd109)
+ * Last edited: Aug  4 09:03 2023 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
+
+#define SYNC_VERSION "0.0"
 
 // AGENDA
 // need to add in edges, with counts
@@ -73,9 +75,6 @@ static char usage[] =
 
 int main (int argc, char *argv[])
 {
-  int w = 1023 ;
-  int k = 16 ;
-  int seed = 7 ;
   char *outPrefix = "syng-out" ;
   int nThread = 4 ;
   pthread_t *threads ;
@@ -92,19 +91,23 @@ int main (int argc, char *argv[])
   links = arrayCreate (1<<20, Link) ;
   linkHash = hashCreate (1<<24) ;
 
+  params.w = PARAMS_W_DEFAULT ;
+  params.k = PARAMS_K_DEFAULT ;
+  params.seed = PARAMS_SEED_DEFAULT ;
+  
   storeCommandLine (argc, argv) ;
   argc-- ; ++argv ;
   if (!argc) { printf ("%s",usage) ; exit (0) ; }
-
   while (argc > 0 && **argv == '-')
-    if (!strcmp (*argv, "-w") && argc > 1) { w = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
-    else if (!strcmp (*argv, "-k") && argc > 1) { k = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
-    else if (!strcmp (*argv, "-seed") && argc > 1) { seed = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
+    if (!strcmp (*argv, "-w") && argc > 1) { params.w = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
+    else if (!strcmp (*argv, "-k") && argc > 1) { params.k = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
+    else if (!strcmp (*argv, "-seed") && argc > 1) { params.seed = atoi(argv[1]) ; argc -= 2 ; argv += 2 ; }
     else if (!strcmp (*argv, "-o") && argc > 1) { outPrefix = argv[1] ; argc -= 2 ; argv += 2 ; }
     else if (!strcmp (*argv, "-T") && argc > 1) { nThread = atoi(argv[1]) ; argc -=2 ; argv +=2 ; }
     else die ("unknown parameter %s\n%s", *argv, usage) ;
 
-  Seqhash *sh = seqhashCreate (k, w+1, seed) ; // need the +1 here - not nice, could fix
+  fprintf (stderr, "k, w, seed are %d %d %d\n", params.k, params.w, params.seed) ;
+  Seqhash *sh = seqhashCreate (params.k, params.w+1, params.seed) ; // need the +1 here - not nice, could fix
 
   if (nThread < 1) die ("number of threads %d must be at least 1", nThread) ;
   threads = new (nThread, pthread_t) ;
@@ -121,10 +124,10 @@ int main (int argc, char *argv[])
   if (argc != 1) die ("need to give a read sequence file\n%s", usage) ;
   if (!(sio = seqIOopenRead (*argv, dna2indexConv, false)))
     die ("failed to open read sequence file %s", *argv) ;
-  char *syncString = new0 (w+k+1, char) ;
+  char *syncString = new0 (params.w+params.k+1, char) ;
   if (!(seqsyn = oneFileOpenWriteNew (fnameTag (outPrefix,"1readsyn"), schema, "readsyn", true, 1)))
       die ("failed to open %s.1readsyn to write", outPrefix) ;
-  oneAddProvenance (seqsyn, "syng", "0.0", getCommandLine()) ;
+  oneAddProvenance (seqsyn, "syng", SYNC_VERSION, getCommandLine()) ;
   oneAddReference (seqsyn, *argv, 0) ; // I don't know what to put for count - maybe 0 is correct?
   Array readSync = arrayCreate(64,I64) ;
   Array readDir = arrayCreate(64,char) ;
@@ -163,17 +166,18 @@ int main (int argc, char *argv[])
 	      arrayMax(readSync) = 0 ; arrayMax(readDir) = 0 ;
 	      for (iPos = 0 ; iPos < posLen ; ++iPos)
 		{ I64 pos = posList[iPos] ;
-		  int x = pos-1, y = pos+w+k ; while (seq[++x] == 3 - seq[--y]) ;
+		  int x = pos-1, y = pos+params.w+params.k ; while (seq[++x] == 3 - seq[--y]) ;
 		  if (seq[x] < 3 - seq[y])
 		    { array(readDir,iPos,char) = '+' ;
-		      for (x = 0 ; x < w+k ; ++x) syncString[x] = acgt[seq[pos+x]] ;
+		      for (x = 0 ; x < params.w+params.k ; ++x) syncString[x] = acgt[seq[pos+x]] ;
 		      dictAdd (syncDict, syncString, &iSync) ;
 		      arrayp(syncs,iSync,Sync)->n++ ;
 		      array(readSync,iPos,I64) = iSync ;
 		    }
 		  else
 		    { array(readDir,iPos,char) = '-' ;
-		      for (x = 0 ; x < w+k ; ++x) syncString[w+k-x-1] = tgca[seq[pos+x]] ;
+		      for (x = 0 ; x < params.w+params.k ; ++x)
+			syncString[params.w+params.k-x-1] = tgca[seq[pos+x]] ;
 		      dictAdd (syncDict, syncString, &iSync) ;
 		      arrayp(syncs,iSync,Sync)->n++ ;
 		      array(readSync,iPos,I64) = iSync ;
@@ -186,13 +190,13 @@ int main (int argc, char *argv[])
 		      if (hashAdd (linkHash, HASH_INT2(sa,sb), &iLink))
 			{ link = arrayp(links,iLink,Link) ;
 			  link->sa = sa ; link->sb = sb ;
-			  link->overlap = w + k - (pos - lastPos) ;
+			  link->overlap = params.w + params.k - (pos - lastPos) ;
 			}
 		      else
 			{ link = arrp(links,iLink,Link) ;
-			  if (w + k - (pos - lastPos) != link->overlap)
-			    fprintf (stderr, "inconsistent overlap segment %d to %d: %d != %d\n",
-				     sa, sb, w + k - (int)(pos - lastPos), link->overlap) ;
+			  if (params.w + params.k - (pos - lastPos) != link->overlap)
+			    fprintf (stderr, "inconsistent overlap %d to %d: %d != %d\n", sa, sb,
+				     params.w + params.k - (int)(pos - lastPos), (int)(link->overlap)) ;
 			}
 		      ++link->n ; 
 		    }
@@ -222,22 +226,22 @@ int main (int argc, char *argv[])
 
   if (!(segFile = oneFileOpenWriteNew (fnameTag (outPrefix,"1seg"), schema, "syncmer", true, 1)))
     die ("failed to open %s.1seg to write syncmer segs", outPrefix) ;
-  oneAddProvenance (segFile, "syng", "0.0", getCommandLine()) ;
+  oneAddProvenance (segFile, "syng", SYNC_VERSION, getCommandLine()) ;
   for (i = 0 ; i < arrayMax(syncs) ; ++i)
     { Sync *s = arrp(syncs, i, Sync) ;
-      oneInt(segFile,0) = w+k ; oneWriteLine (segFile, 'S', 0, 0) ;
+      oneInt(segFile,0) = params.w+params.k ; oneWriteLine (segFile, 'S', 0, 0) ;
       oneInt(segFile,0) = s->n ; oneWriteLine (segFile, 'K', 0, 0) ;
     }
   oneFileClose (segFile) ;
 
   if (!(linkFile = oneFileOpenWriteNew (fnameTag (outPrefix, "1link"), schema, "link", true, 1)))
     die ("failed to open %s.1link to write links", outPrefix) ;
-  oneAddProvenance (segseq, "syng", "0.0", getCommandLine()) ;
+  oneAddProvenance (linkFile, "syng", SYNC_VERSION, getCommandLine()) ;
   for (i = 0 ; i < arrayMax(links) ; ++i)
     { Link *l = arrp(links, i, Link) ;
       if (l->sa >= 0) { oneInt(linkFile,0) = l->sa ; oneChar(linkFile,1) = '+' ; }
       else { oneInt(linkFile,0) = -l->sa - 1 ; oneChar(linkFile,3) = '-' ; }
-      if (l->sb >= 0) { oneInt(linkFile,2) = l->sb ; oneChar(linkFile,1) = '+' ; }
+      if (l->sb >= 0) { oneInt(linkFile,2) = l->sb ; oneChar(linkFile,3) = '+' ; }
       else { oneInt(linkFile,2) = -l->sb - 1 ; oneChar(linkFile,3) = '-' ; }
       oneWriteLine (linkFile, 'L', 0, 0) ;
       oneInt(linkFile,0) = l->overlap ; oneWriteLine (linkFile, 'O', 0, 0) ;
@@ -247,10 +251,10 @@ int main (int argc, char *argv[])
 
   if (!(segseq = oneFileOpenWriteNew (fnameTag (outPrefix,"1syncseq"), schema, "syncseq", true, 1)))
     die ("failed to open %s.1syncseq to write syncmer sequences", outPrefix) ;
-  oneAddProvenance (segseq, "syng", "0.0", getCommandLine()) ;
-  fprintf (stderr, "w+k %d dictMax %d\n", w+k, dictMax(syncDict)) ;
+  oneAddProvenance (segseq, "syng", SYNC_VERSION, getCommandLine()) ;
+  fprintf (stderr, "w+k %d dictMax %d\n", params.w+params.k, dictMax(syncDict)) ;
   for (i = 0 ; i < dictMax(syncDict) ; ++i)
-    oneWriteLine (segseq, 'S', w+k, dictName (syncDict, i)) ;
+    oneWriteLine (segseq, 'S', params.w+params.k, dictName (syncDict, i)) ;
   oneFileClose (segseq) ;
 
   arrayDestroy (syncs) ;
