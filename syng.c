@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: Aug  4 09:03 2023 (rd109)
+ * Last edited: Nov 27 18:02 2023 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -25,16 +25,6 @@
 #include "ONElib.h"
 
 #include "syng.h"
-
-static void canonicaliseLink (int ia, int ib, int *sa, int *sb)
-{ int ka = (ia >= 0) ? ia : -ia-1 ;
-  int kb = (ib >= 0) ? ib : -ib-1 ;
-  if (ka < kb) { *sa = ia ; *sb = ib ; }
-  else if (kb > ka) { *sa = -ib-1 ; *sb = -ia-1 ; }
-  else // they are equal
-    if (ia >= 0) { *sa = ia ; *sb = ib ; }
-    else { *sa = -ib-1 ; *sb = -ia-1 ; }
-}
 
 typedef struct {
   Seqhash *sh ;
@@ -65,6 +55,14 @@ static void *threadProcess (void* arg) // find the start positions of all the sy
   return 0 ;
 }
 
+static void writeParams (OneFile *of)
+{
+  oneInt(of,0) = params.k ;
+  oneInt(of,1) = params.w ;
+  oneInt(of,2) = params.seed ;
+  oneWriteLine (of, 'h', 0, 0) ;
+}
+
 static char usage[] =
   "Usage: syng <options> <read sequence file>\n"
   "  -w <syncmer length>    : [1023]\n"
@@ -81,18 +79,16 @@ int main (int argc, char *argv[])
   ThreadInfo *threadInfo ;
   SeqIO *sio ;
   OneSchema *schema = oneSchemaCreateFromText (syngSchemaText) ;
-  OneFile *segseq, *seqsyn, *segFile, *linkFile ;
+  OneFile *segseq, *seqsyn, *segFile ;
   char *acgt = "acgt", *tgca = "tgca" ; // normal and complemented
 
   timeUpdate (0) ;
 
   syncs = arrayCreate (1<<20, Sync) ;
   syncDict = dictCreate (1<<20) ;
-  links = arrayCreate (1<<20, Link) ;
-  linkHash = hashCreate (1<<24) ;
 
-  params.w = PARAMS_W_DEFAULT ;
   params.k = PARAMS_K_DEFAULT ;
+  params.w = PARAMS_W_DEFAULT ;
   params.seed = PARAMS_SEED_DEFAULT ;
   
   storeCommandLine (argc, argv) ;
@@ -129,6 +125,7 @@ int main (int argc, char *argv[])
       die ("failed to open %s.1readsyn to write", outPrefix) ;
   oneAddProvenance (seqsyn, "syng", SYNC_VERSION, getCommandLine()) ;
   oneAddReference (seqsyn, *argv, 0) ; // I don't know what to put for count - maybe 0 is correct?
+  writeParams (seqsyn) ;
   Array readSync = arrayCreate(64,I64) ;
   Array readDir = arrayCreate(64,char) ;
   U64 nSeq = 0, totSeq = 0, totSync = 0 ;
@@ -145,6 +142,7 @@ int main (int argc, char *argv[])
 	      array(ti->seq, seqStart+sio->seqLen, char) = 0 ;
 	      memcpy (arrp(ti->seq, seqStart, char), sqioSeq(sio), sio->seqLen) ;
 	      seqStart += sio->seqLen ;
+	      totSeq += sio->seqLen ; 
 	    }
 	  if (!arrayMax(ti->seq)) // we are done
 	    { nThread = i ;
@@ -158,9 +156,9 @@ int main (int argc, char *argv[])
 	pthread_join (threads[i], 0) ; // wait for threads to complete
       for (i = 0 ; i < nThread ; ++i) //
 	{ ThreadInfo *ti = threadInfo + i ;
-	  I64 *posList = arrp(ti->pos, 0, I64), lastPos ;
+	  I64 *posList = arrp(ti->pos, 0, I64) ;
 	  char *seq = arrp(ti->seq, 0, char) ;
-	  int iRead, iPos, iSync, iLastSync ;
+	  int iRead, iPos, iSync ;
 	  for (iRead = 0 ; iRead < arrayMax(ti->posLen) ; ++iRead)
 	    { I64 posLen = arr(ti->posLen, iRead, I64) ;
 	      arrayMax(readSync) = 0 ; arrayMax(readDir) = 0 ;
@@ -181,27 +179,7 @@ int main (int argc, char *argv[])
 		      dictAdd (syncDict, syncString, &iSync) ;
 		      arrayp(syncs,iSync,Sync)->n++ ;
 		      array(readSync,iPos,I64) = iSync ;
-		      iSync = -iSync-1 ;
 		    }
-		  if (iPos > 1) // add the link
-		    { int sa, sb, iLink ;
-		      canonicaliseLink (iLastSync, iSync, &sa, &sb) ;
-		      Link *link ;
-		      if (hashAdd (linkHash, HASH_INT2(sa,sb), &iLink))
-			{ link = arrayp(links,iLink,Link) ;
-			  link->sa = sa ; link->sb = sb ;
-			  link->overlap = params.w + params.k - (pos - lastPos) ;
-			}
-		      else
-			{ link = arrp(links,iLink,Link) ;
-			  if (params.w + params.k - (pos - lastPos) != link->overlap)
-			    fprintf (stderr, "inconsistent overlap %d to %d: %d != %d\n", sa, sb,
-				     params.w + params.k - (int)(pos - lastPos), (int)(link->overlap)) ;
-			}
-		      ++link->n ; 
-		    }
-		  iLastSync = iSync ;
-		  lastPos = pos ;
 		} // iPos
 	      if (posLen)
 		{ oneWriteLine (seqsyn, 'S', posLen, arrp(readSync,0,I64)) ;
@@ -209,7 +187,7 @@ int main (int argc, char *argv[])
 		  oneWriteLine (seqsyn, 'O', posLen, arrp(readDir,0,char)) ;
 		  oneInt(seqsyn, 0) = nSeq ; oneWriteLine (seqsyn, 'R', 0, 0) ;
 		}
-	      nSeq++ ; totSeq += sio->seqLen ; totSync += arrayMax(readSync) ;
+	      nSeq++ ; totSync += arrayMax(readSync) ;
 	      seq += arr(ti->seqLen, iRead, I64) ;
 	      posList += posLen ;
 	    } // read
@@ -234,33 +212,16 @@ int main (int argc, char *argv[])
     }
   oneFileClose (segFile) ;
 
-  if (!(linkFile = oneFileOpenWriteNew (fnameTag (outPrefix, "1link"), schema, "link", true, 1)))
-    die ("failed to open %s.1link to write links", outPrefix) ;
-  oneAddProvenance (linkFile, "syng", SYNC_VERSION, getCommandLine()) ;
-  for (i = 0 ; i < arrayMax(links) ; ++i)
-    { Link *l = arrp(links, i, Link) ;
-      if (l->sa >= 0) { oneInt(linkFile,0) = l->sa ; oneChar(linkFile,1) = '+' ; }
-      else { oneInt(linkFile,0) = -l->sa - 1 ; oneChar(linkFile,3) = '-' ; }
-      if (l->sb >= 0) { oneInt(linkFile,2) = l->sb ; oneChar(linkFile,3) = '+' ; }
-      else { oneInt(linkFile,2) = -l->sb - 1 ; oneChar(linkFile,3) = '-' ; }
-      oneWriteLine (linkFile, 'L', 0, 0) ;
-      oneInt(linkFile,0) = l->overlap ; oneWriteLine (linkFile, 'O', 0, 0) ;
-      oneInt(linkFile,0) = l->n ; oneWriteLine (linkFile, 'R', 0, 0) ;
-    }
-  oneFileClose (linkFile) ;
-
   if (!(segseq = oneFileOpenWriteNew (fnameTag (outPrefix,"1syncseq"), schema, "syncseq", true, 1)))
     die ("failed to open %s.1syncseq to write syncmer sequences", outPrefix) ;
   oneAddProvenance (segseq, "syng", SYNC_VERSION, getCommandLine()) ;
-  fprintf (stderr, "w+k %d dictMax %d\n", params.w+params.k, dictMax(syncDict)) ;
+  writeParams (segseq) ;
   for (i = 0 ; i < dictMax(syncDict) ; ++i)
     oneWriteLine (segseq, 'S', params.w+params.k, dictName (syncDict, i)) ;
   oneFileClose (segseq) ;
 
   arrayDestroy (syncs) ;
   dictDestroy (syncDict) ;
-  arrayDestroy (links) ;
-  hashDestroy (linkHash) ;
 	  
   fprintf (stderr, "total: ") ; timeTotal (stderr) ;
   return 0 ;

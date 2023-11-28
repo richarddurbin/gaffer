@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Aug  4 09:05 2023 (rd109)
+ * Last edited: Nov 27 17:54 2023 (rd109)
  * Created: Mon May 29 08:19:18 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -30,8 +30,8 @@ typedef struct {
 } Link ;
 
 Params params ;
-static int PARAMS_W_DEFAULT = 1023 ;
 static int PARAMS_K_DEFAULT = 16 ;
+static int PARAMS_W_DEFAULT = 1023 ;
 static int PARAMS_SEED_DEFAULT = 7 ;
 Array syncs ;
 Array links ;
@@ -43,7 +43,6 @@ static char *syngSchemaText =
   ".\n"
   "P 3 seg                   SEGMENT file\n"
   "S 7 syncmer               file of syncmers\n"
-  "D h 3 3 INT 3 INT 3 INT   k, w, seed for the seqhash - here k = smer length, w = syncmer length+1\n"
   "O S 1 3 INT               length\n"
   "D K 1 3 INT               kmer count\n"
   //  "D L 1 8 INT_LIST          list of reads containing the syncmer\n"
@@ -52,6 +51,7 @@ static char *syngSchemaText =
   "P 3 seq                   SEQUENCE\n"
   "S 6 segseq                segment sequence - objects are 1:1 with those in seg file\n"
   "S 7 syncseq               syncmer sequence\n"
+  "D h 3 3 INT 3 INT 3 INT   k, w, seed for the seqhash: for syncs k = |smer|, w+k = |syncmer|\n"
   "S 7 readseq               read sequence\n"
   "S 9 contigseq             contig sequence\n"
   "O S 1 3 DNA               sequence of the syncmer\n"
@@ -59,7 +59,7 @@ static char *syngSchemaText =
   "P 6 seqsyn                sequences of syncmers\n"
   "S 7 readsyn               read sequence in syncmers\n"
   "S 9 contigsyn             contig sequence in syncmers\n"
-  "D h 3 3 INT 3 INT 3 INT   k, w, seed for the seqhash - here k = smer length, w = syncmer length+1\n"
+  "D h 3 3 INT 3 INT 3 INT   k, w, seed for the seqhash: for syncs k = |smer|, w+k = |syncmer|\n"
   "O S 1 8 INT_LIST          sequence: list of syncmer seg ids\n"
   "D P 1 8 INT_LIST          positions of the syncmers\n"
   "D O 1 6 STRING            orientations of the syncmers\n"

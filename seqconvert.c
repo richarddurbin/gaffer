@@ -5,7 +5,7 @@
  * Description: utility to convert between sequence formats
  * Exported functions:
  * HISTORY:
- * Last edited: May 30 14:02 2023 (rd109)
+ * Last edited: Nov 28 22:09 2023 (rd109)
  * Created: Sun Feb 17 10:23:37 2019 (rd109)
  *-------------------------------------------------------------------
  */
@@ -79,12 +79,12 @@ int main (int argc, char *argv[])
       fprintf (stderr, "\n") ;
     }
 
+  U64 *runLengths, runLengthSize = 0 ; // needed for hoco - need to declare here outside seqio loop
   if (isUnHoco)
     convertUnHoco (siIn, siOut) ;
   else
     while (seqIOread (siIn))
       { U64 seqLen = siIn->seqLen ;
-	U64 *runLengths, runLengthSize = 0 ;
 	if (isHoco) hoco (sqioSeq(siIn), &seqLen, (siOut->type == ONE) ? &runLengths : 0, &runLengthSize) ;
 	seqIOwrite (siOut,
 		    siIn->idLen ? sqioId(siIn) : 0,
