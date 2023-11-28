@@ -5,7 +5,7 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: Jul 26 13:37 2023 (rd109)
+ * Last edited: Nov 27 16:56 2023 (rd109)
  * * Dec 15 09:45 2022 (rd109): separated out 2bit packing/unpacking into SeqPack
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
@@ -352,11 +352,6 @@ static char *schemaText =
   "1 3 def 1 0  schema for seqio\n"
   ".\n"
   "P 3 seq SEQUENCE\n"
-  "S 3 irp   read pairs\n"
-  "S 3 pbr   pacbio reads\n"
-  "S 3 10x   10X Genomics data\n"
-  "S 3 ctg   contigs from an assembly\n"
-  "S 3 kmr   kmers\n"
   "O S 1 3 DNA             sequence: the DNA string\n"
   "D I 1 6 STRING          id: (optional) sequence identifier\n"
   "D Q 1 6 STRING          quality: Q values (ascii string = q+33)\n"
@@ -368,8 +363,8 @@ SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThr
 {
   SeqIO *si = new0 (1, SeqIO) ;
   int nameLen = strlen (filename) ;
+  bool isGzip = false ;
 
-  si->type = type ;
   si->isWrite = true ;
   si->convert = convert ;
   si->isQual = (qualThresh > 0) ;
@@ -378,9 +373,23 @@ SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThr
     { fprintf (stderr, "warning : can't write qualities to FASTA file %s\n", filename) ;
       si->isQual = false ;
     }
-
-  if (si->type == ONE ||
-      (nameLen > 5 && *(filename+nameLen-5) == '.' && *(filename+nameLen-4) == '1'))
+  if (type)
+    si->type = type ;
+  else
+    { char *s ;
+      for (s = filename+nameLen ; s > filename && *--s != '.' ;) ;
+      if (!strcmp (s, ".gz"))
+	{ isGzip = true ;
+	  if (nameLen > 6 && !strcmp (filename+nameLen-6, ".fa.gz")) si->type = FASTA ;
+	  if (nameLen > 6 && !strcmp (filename+nameLen-6, ".fq.gz")) si->type = FASTQ ;
+	}
+      else if (!strcmp (s, ".fa")) si->type = FASTA ;
+      else if (!strcmp (s, ".fq")) si->type = FASTQ ;
+      else if (s[1] == '1') si->type = ONE ;
+      else { warn ("can't determine sequence file type for %s", filename) ; free(si) ; return 0 ; }
+    }
+  
+  if (si->type == ONE) 
 #ifdef ONEIO
     { OneSchema *schema = oneSchemaCreateFromText (schemaText) ;
       char *oneType = "seq" ;
@@ -408,25 +417,19 @@ SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThr
   
   if (!strcmp (filename, "-"))
     { si->fd = fileno (stdout) ;
-      if (si->fd == -1) { free (si) ; return 0 ; }
+      if (si->fd == -1) { warn ("failed to write to stdout") ; free (si) ; return 0 ; }
     }
   else if (!strcmp (filename, "-z"))
     { si->gzf = gzdopen (fileno(stdout), "w") ;
-      if (!si->gzf) { free (si) ; return 0 ; }
+      if (!si->gzf) { warn ("failed to gzdopen stdout", filename) ; free (si) ; return 0 ; }
     }
-  else if (nameLen > 3 && !strcmp (filename+nameLen-3, ".gz"))
-    { si->gzf = gzopen (filename, "w") ; nameLen -= 3 ; filename[nameLen] = 0 ;
-      if (!si->gzf) { free (si) ; return 0 ; }
+  else if (isGzip)
+    { si->gzf = gzopen (filename, "w") ;
+      if (!si->gzf) { warn ("failed to gzopen %s", filename) ; free (si) ; return 0 ; }
     }
   else
     { si->fd = open (filename, O_CREAT | O_TRUNC | O_WRONLY, 00644) ;
-      if (si->fd == -1) { free (si) ; return 0 ; }
-    }
-
-  if (si->type == UNKNOWN)
-    { if (nameLen > 3 && !strcmp (filename+nameLen-3, ".fa")) si->type = FASTA ;
-      else if (nameLen > 3 && !strcmp (filename+nameLen-3, ".fq")) si->type = FASTQ ;
-      else si->type = BINARY ;
+      if (si->fd == -1) { warn ("failed to open %s", filename) ; free (si) ; return 0 ; }
     }
   if (si->type == BINARY && si->gzf)
     { fprintf (stderr, "can't write a gzipped binary file\n") ; seqIOclose (si) ; return 0 ; }
