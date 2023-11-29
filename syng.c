@@ -158,7 +158,8 @@ int main (int argc, char *argv[])
 	{ ThreadInfo *ti = threadInfo + i ;
 	  I64 *posList = arrp(ti->pos, 0, I64) ;
 	  char *seq = arrp(ti->seq, 0, char) ;
-	  int iRead, iPos, iSync ;
+	  int iRead, iPos ;
+    U64 iSync ;
 	  for (iRead = 0 ; iRead < arrayMax(ti->posLen) ; ++iRead)
 	    { I64 posLen = arr(ti->posLen, iRead, I64) ;
 	      arrayMax(readSync) = 0 ; arrayMax(readDir) = 0 ;
@@ -195,7 +196,7 @@ int main (int argc, char *argv[])
     }
 
   printf ("read %" PRIu64 " sequences, total length %" PRIu64 ""
-          ", yielding %" PRIu64 " instances of %d syncmers, average %.2f coverage\n", 
+          ", yielding %" PRIu64 " instances of %" PRIu64 " syncmers, average %.2f coverage\n", 
           nSeq, totSeq, totSync, arrayMax(syncs), totSync / (double)arrayMax(syncs)) ; 
   
   oneFileClose (seqsyn) ;
