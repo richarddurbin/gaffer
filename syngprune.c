@@ -131,7 +131,7 @@ int main (int argc, char **argv)
   while (oneReadLine (seg))
     if (seg->lineType == 'K') array(kCounts, arrayMax(kCounts), int) = oneInt(seg,0) ;
   oneFileClose (seg) ;
-  fprintf (stderr, "read counts for %d segments\n", arrayMax(kCounts)) ;
+  fprintf (stderr, "read counts for %" PRIu64 " segments\n", arrayMax(kCounts)) ;
   
   if (!isView)
     { if (argc != 2) die ("need two arguments when pruning, not %d\n%s", argc, usage) ;

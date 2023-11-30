@@ -51,7 +51,7 @@ void gfaParseSL (Gfa *gf, char *filename)
     { char *word = fgetword (f) ;
       if (feof(f)) break ;
       if (strlen(word) > 1) die ("line %d starts with %s not a single char", line, word) ;
-      int index ;
+      U64 index ;
       switch (*word)
 	{
 	case 'S':
@@ -103,7 +103,7 @@ void readSeqFile (Gfa *gf, char *filename)
 {
   SeqIO *si = seqIOopenRead (filename, 0, false) ;
   if (!si) die ("failed to open sequence file %s to read", filename) ;
-  int index ;
+  U64 index ;
   U64 total = 0 ;
   while (seqIOread (si))
     if (dictFind (gf->seqName, sqioId(si), &index))

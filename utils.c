@@ -63,7 +63,7 @@ long totalAllocated = 0 ;
 void *myalloc (size_t size)
 {
   void *p = (void*) malloc (size) ;
-  if (!p) die ("myalloc failure requesting %d bytes", size) ;
+  if (!p) die ("myalloc failure requesting %d bytes - totalAllocated %ld", size, totalAllocated) ;
   totalAllocated += size ;
   return p ;
 }
@@ -71,7 +71,7 @@ void *myalloc (size_t size)
 void *mycalloc (size_t number, size_t size)
 {
   void *p = (void*) calloc (number, size) ;
-  if (!p) die ("mycalloc failure requesting %d objects of size %d", number, size) ;
+  if (!p) die ("mycalloc failure requesting %d objects of size %d - totalAllocated %ld", number, size, totalAllocated) ;
   totalAllocated += size*number ;
   return p ;
 }
