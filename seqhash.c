@@ -319,7 +319,7 @@ int main (int argc, char *argv[])
   if (argc > 1) sio = seqIOopenRead (argv[1], dna2indexConv, 0) ;
   else sio = seqIOopenRead ("-", dna2indexConv, 0) ;
   
-  Seqhash *sh = seqhashCreate (K, W, 0) ;
+  Seqhash *sh = seqhashCreate (K, W, 7) ;
   while (seqIOread (sio))
     { printf ("\nread sequence %s length %" PRIu64 "\n", sqioId(sio), sio->seqLen) ;
       SeqhashIterator *si = syncmerIterator (sh, sqioSeq(sio), sio->seqLen) ;

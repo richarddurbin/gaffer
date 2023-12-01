@@ -3922,7 +3922,7 @@ static void *myalloc(size_t size)
 { void *p;
 
   p = malloc(size);
-  if (p == NULL && size != 0 ) die("myalloc failure requesting %d bytes", size);
+  if (p == NULL && size != 0 ) die("ONElib myalloc failure requesting %d bytes - totalAlloc %" PRId64 "", size, totalAlloc);
   nAlloc     += 1;
   totalAlloc += size;
   return (p);

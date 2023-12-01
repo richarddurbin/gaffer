@@ -306,7 +306,7 @@ Gfa *gfaParseSL (char *filename)
     { char *word = fgetword (f) ;
       if (feof(f)) break ;
       if (strlen(word) > 1) die ("line %d starts with %s not a single char", line, word) ;
-      int index ;
+      U64 index ;
       switch (*word)
 	{
 	case '#': // comment line
@@ -405,7 +405,7 @@ Gfa *gfaParseSL (char *filename)
       ++line ;
     }
   fclose (f) ;
-  printf ("read %d S lines and %d L lines from GFA file %s\n",
+  printf ("read %" PRIu64 " S lines and %" PRIu64 " L lines from GFA file %s\n",
 	  arrayMax(gf->seq), arrayMax(gf->link), filename) ;
   return gf ;
 }
@@ -422,7 +422,7 @@ static inline char* seqName (Gfa *gf, int i)
 static inline char* pathName (Gfa *gf, int i)
 { static char buf[64] ;
   if (gf->pathName) return dictName(gf->pathName, i) ;
-  else { sprintf (buf, "%d", arrayMax(gf->seq)/2 + 1 + i) ; return buf ; }
+  else { sprintf (buf, "%" PRIu64 "", arrayMax(gf->seq)/2 + 1 + i) ; return buf ; }
 }
 
 void gfaWrite (Gfa *gf, char *file)
@@ -503,7 +503,7 @@ void linkRemoveDuplicates (Gfa *gf)
       if (lu->s1 != l->s1 || lu->s2 != l->s2 || lu->overlap != l->overlap) *++lu = *l ;
     }
   int newMax = lu - arrp(gf->link, 0, Link) + 1 ;
-  printf ("removed %d duplicate links, leaving %d\n", arrayMax(gf->link) - newMax, newMax) ;
+  printf ("removed %" PRIu64 " duplicate links, leaving %d\n", arrayMax(gf->link) - newMax, newMax) ;
   arrayMax (gf->link) = newMax ;
 }
 
@@ -511,7 +511,7 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
 {
   SeqIO *si = seqIOopenRead (filename, 0, false) ;
   if (!si) die ("failed to open sequence file %s to read", filename) ;
-  int index ;
+  U64 index ;
   U64 total = 0 ;
   while (seqIOread (si))
     if (dictFind (gf->seqName, sqioId(si), &index))
@@ -553,7 +553,7 @@ void linkRemoveBad (Gfa *gf)
     }
 
   int newMax = ul - arrp(gf->link, 0, Link) ;
-  printf ("%d imperfect overlaps removed, %d remain\n", arrayMax(gf->link) - newMax, newMax) ;
+  printf ("%" PRIu64 " imperfect overlaps removed, %d remain\n", arrayMax(gf->link) - newMax, newMax) ;
   arrayMax(gf->link) = newMax ;
 
   gf->isPerfect = true ;
@@ -762,10 +762,10 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
 
   // finally sort and compress the links
   arraySort (gf2->link, linkOrder1) ;
-  printf ("%d initial new links before compression\n", arrayMax(gf2->link)) ;
+  printf ("%" PRIu64 " initial new links before compression\n", arrayMax(gf2->link)) ;
   arrayCompress (gf2->link) ;
 
-  printf ("made blunt gfa with %d seqs, %d links and %d paths\n",
+  printf ("made blunt gfa with %" PRIu64 " seqs, %" PRIu64 " links and %" PRIu64 " paths\n",
 	  arrayMax(gf2->seq), arrayMax(gf2->link), arrayMax(gf2->path)) ;
 
   // now check the paths
@@ -773,7 +773,7 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
     { Seq *ps = arrp(gf1->seq, is, Seq) ; if (!ps->dna) continue ;
       Path *p = arrp(gf2->path, is, Path) ;
       if (is == X || is == RC(X)) // debug section
-	printf ("is %d path %d segs %d start %d end\n",
+	printf ("is %d path %" PRIu64 " segs %d start %d end\n",
 		is, arrayMax(p->as), p->start, p->end) ;
       assert (p->start == 0 && p->end == 0) ; // code below currently requires this
       int i, j, n = 0 ;
@@ -857,7 +857,7 @@ int main (int argc, char *argv[])
 	{ if (gf) { fprintf (stderr, "removing existing gf\n") ; gfaDestroy (gf) ; }
 	  gf = gfaParseSL (argv[1]) ;
 	  linkRemoveDuplicates (gf) ;
-	  oneAddProvenance (gf->vf, "gaffer", VERSION, "readGfa %s // nS %d nL %d nP %d", argv[1],
+	  oneAddProvenance (gf->vf, "gaffer", VERSION, "readGfa %s // nS %" PRIu64 " nL %" PRIu64 " nP %" PRIu64 "", argv[1],
 			    arrayMax(gf->seq), arrayMax(gf->link),
 			    gf->path ? arrayMax(gf->path) : 0) ;
 	  argc -= 2 ; argv += 2 ; 
@@ -878,7 +878,7 @@ int main (int argc, char *argv[])
       else if (!strcmp (*argv, "-removeBadLinks"))
 	{ if (gf)
 	    { linkRemoveBad (gf) ;
-	      oneAddProvenance (gf->vf, "gaffer", VERSION, "removeBadLinks // nL %d",
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "removeBadLinks // nL %" PRIu64 "",
 				arrayMax (gf->link)) ;
 	    }
 	  else fprintf (stderr, "can't remove bad links without a graph\n") ;
@@ -887,7 +887,7 @@ int main (int argc, char *argv[])
       else if (!strcmp (*argv, "-blunt"))
 	{ if (gf)
 	    { Gfa *gf2 = bluntify (gf) ;
-	      oneAddProvenance (gf->vf, "gaffer", VERSION, "bluntify // nS %d nL %d nP %d",
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "bluntify // nS %" PRIu64 " nL %" PRIu64 " nP %" PRIu64 "",
 				arrayMax(gf->seq), arrayMax(gf->link),
 				gf->path ? arrayMax(gf->path) : 0) ;
 	      gf2->vf = gf->vf ; gf->vf = 0 ; 
@@ -900,7 +900,7 @@ int main (int argc, char *argv[])
       else if (!strcmp (*argv, "-chain"))
 	{ if (gf)
 	    { Gfa *gf2 = chain (gf) ;
-	      oneAddProvenance (gf->vf, "gaffer", VERSION, "chain // nS %d nL %d",
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "chain // nS %" PRIu64 " nL %" PRIu64 "",
 				arrayMax(gf->seq), arrayMax(gf->link)) ;
 	      gf2->vf = gf->vf ; gf->vf = 0 ; 
 	      gfaDestroy (gf) ;
