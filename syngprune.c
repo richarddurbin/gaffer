@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Jun 10 08:06 2023 (rd109)
+ * Last edited: Nov 29 20:15 2023 (rd109)
  * Created: Mon May 29 08:22:38 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -56,7 +56,7 @@ void view (int object, Array units, int min, int max)
 OneFile *readsIn, *readsOut ;
 
 typedef struct {
-  OneFile *seqsyn ;
+  OneFile *readsyn ;
   OneFile *readsIn ;
   OneFile *readsOut ; // share the kCounts Array as a read-only global
 } Thread_info ;
@@ -93,7 +93,7 @@ bool filter (Array units, int min, int max)
 }
 
 static char usage[] =
-  "Usage: syngprune <options> <oncode file prefix> <read sequence file>\n"
+  "Usage: syngprune <options> <onecode file prefix> <read sequence file>\n"
   "  -min <min>    : [0]\n"
   "  -max <max>    : [1]\n"
   "  -v            : view\n"
@@ -101,7 +101,7 @@ static char usage[] =
 
 int main (int argc, char **argv)
 {
-  OneFile *seg, *seqsyn ;
+  OneFile *seg, *readsyn ;
   int min = 0, max = 1 ;
   int i, object ;
   bool isView = false ;
@@ -145,34 +145,34 @@ int main (int argc, char **argv)
     }
 
   Array units = arrayCreate (64,Unit) ;
-  if (!(seqsyn = oneFileOpenRead (fnameTag (argv[0],"1seqsyn"), 0, "seqsyn", nThreads)))
-    die ("failed to open %s.1seqsyn to write", argv[0]) ;
-  while (oneReadLine (seqsyn))
-    if (seqsyn->lineType == 'S')
-      { I64 *x = oneIntList(seqsyn) ;
+  if (!(readsyn = oneFileOpenRead (fnameTag (argv[0],"1readsyn"), 0, "seqsyn", nThreads)))
+    die ("failed to open %s.1readsyn to read", argv[0]) ;
+  while (oneReadLine (readsyn))
+    if (readsyn->lineType == 'S')
+      { I64 *x = oneIntList(readsyn) ;
 	if (isView) view (object, units, min, max) ; else if (filter (units, min, max)) ++nFiltered ;
 	arrayMax(units) = 0 ;
-	object = seqsyn->object ;
-	for (i = 0 ; i < oneLen(seqsyn) ; ++i) arrayp(units,i,Unit)->seg = x[i] ;
- 	for (i = 0 ; i < oneLen(seqsyn) ; ++i) arrayp(units,i,Unit)->count = arr(kCounts,(int)x[i],int) ;
+	object = readsyn->object ;
+	for (i = 0 ; i < oneLen(readsyn) ; ++i) arrayp(units,i,Unit)->seg = x[i] ;
+ 	for (i = 0 ; i < oneLen(readsyn) ; ++i) arrayp(units,i,Unit)->count = arr(kCounts,(int)x[i],int) ;
       }
-    else if (seqsyn->lineType == 'O')
-      { char*s = oneString(seqsyn) ;
-	for (i = 0 ; i < oneLen(seqsyn) ; ++i) arrayp(units,i,Unit)->ori = s[i] ;
+    else if (readsyn->lineType == 'O')
+      { char*s = oneString(readsyn) ;
+	for (i = 0 ; i < oneLen(readsyn) ; ++i) arrayp(units,i,Unit)->ori = s[i] ;
       }
-    else if (seqsyn->lineType == 'P')
-      { I64 *p = oneIntList(seqsyn) ;
-	for (i = 0 ; i < oneLen(seqsyn) ; ++i) arrayp(units,i,Unit)->pos = p[i] ;
+    else if (readsyn->lineType == 'P')
+      { I64 *p = oneIntList(readsyn) ;
+	for (i = 0 ; i < oneLen(readsyn) ; ++i) arrayp(units,i,Unit)->pos = p[i] ;
       }
   if (isView)
     view (object, units, min, max) ;
   else
     { if (filter (units, min, max)) ++nFiltered ;
-      fprintf (stderr, "filtered %d of %d objects\n", nFiltered, (int)seqsyn->object+1) ;
+      fprintf (stderr, "filtered %d of %d objects\n", nFiltered, (int)readsyn->object+1) ;
       oneFileClose (readsIn) ;
       oneFileClose (readsOut) ;
     }
-  oneFileClose (seqsyn) ;
+  oneFileClose (readsyn) ;
   
   fprintf (stderr, "total: ") ; timeTotal (stderr) ;
   return 0 ;

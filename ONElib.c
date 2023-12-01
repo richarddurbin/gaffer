@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Jul 24 08:09 2023 (rd109)
+ * Last edited: Nov 29 20:17 2023 (rd109)
  * * Dec 20 21:29 2022 (rd109): changed DNA compression to little-endian: natural on Intel, Apple
  * * Apr 23 00:31 2020 (rd109): global rename of VGP to ONE, Vgp to One, vgp to one
  * * Apr 20 11:27 2020 (rd109): added VgpSchema to make schema dynamic
@@ -163,8 +163,8 @@ static void schemaAddInfoFromArray (OneSchema *vs, int n, OneType *a, char t, ch
 	vi->listField = i ;
 	if (a[i] == oneDNA)
 	  { vi->listCodec = DNAcodec ; vi->isUseListCodec = true ; }
-	else
-	  vi->listCodec = vcCreate () ; // always make a listCodec for any list type
+	else if (t != '/') // make a listCodec for any list type except for commments
+	  vi->listCodec = vcCreate () ; 
       }
 
   if (t >= 'A' && t <= 'Z') vi->binaryTypePack = ((t-'A') << 1) | (char) 0x80 ;
@@ -1094,9 +1094,11 @@ char oneReadLine (OneFile *vf)
 	  peek = vf->binaryTypeUnpack[peek];
 	if (peek == '/') // a comment
 	  { OneField keepField0 = vf->field[0] ;
+	    I64 keepNbits = vf->nBits ; // will be reset in readLine
 	    oneReadLine (vf) ; // read comment line into vf->info['/']->buffer
 	    vf->lineType = t ;
 	    vf->field[0] = keepField0 ;
+	    vf->nBits = keepNbits ;
 	  }
       }
     }
@@ -1135,7 +1137,8 @@ void *_oneCompressedList (OneFile *vf)
   OneInfo *li = vf->info[(int) vf->lineType] ;
 
   if (!vf->nBits && oneLen(vf) > 0)      // need to compress
-    vcEncode (li->listCodec, oneLen(vf), vf->info[(int) vf->lineType]->buffer, vf->codecBuf);
+    vf->nBits = vcEncode (li->listCodec, oneLen(vf),
+			  vf->info[(int) vf->lineType]->buffer, vf->codecBuf);
 
   return (void*) vf->codecBuf ;
 }
@@ -1219,7 +1222,8 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, const char *fileType,
     vf = oneFileCreate (&vs, name) ;
     if (!vf)
       OPEN_ERROR1("failed to create OneFile object") ;
-    if (fileType && strcmp (fileType, vf->fileType) && strcmp (fileType, vf->subType))
+    if (fileType && strcmp (fileType, vf->fileType) &&
+	(!vf->subType || strcmp (fileType, vf->subType)))
       { oneFileDestroy (vf) ;
 	OPEN_ERROR3("fileType mismatch file %s != requested %s", vf->fileType, fileType) ;
       }
