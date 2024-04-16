@@ -5,7 +5,7 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: Jul 27 14:25 2023 (rd109)
+ * Last edited: Dec 18 17:22 2023 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
@@ -48,11 +48,11 @@ static char* commandLine = 0 ;
 
 void storeCommandLine (int argc, char **argv)
 {
-  int i, totLen = 0 ;
+  int i, totLen = 1 ;
   for (i = 0 ; i < argc ; ++i) totLen += 1 + strlen(argv[i]) ;
   if (commandLine) free (commandLine) ;
   commandLine = new (totLen, char) ;
-  strcpy (commandLine, argv[0]) ;
+  if (argc) strcpy (commandLine, argv[0]) ; else *commandLine = 0 ;
   for (i = 1 ; i < argc ; ++i) { strcat (commandLine, " ") ; strcat (commandLine, argv[i]) ; }
 }
 
