@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University, 2019
  *
  * HISTORY:
- * Last edited: Jun 10 08:20 2023 (rd109)
+ * Last edited: Jul 25 22:52 2024 (rd109)
  *   * Dec 27 09:20 2019 (gene): style edits
  *   * Created: Thu Feb 21 22:40:28 2019 (rd109)
  *
@@ -17,10 +17,13 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "utils.h"
 #include "ONElib.h"
-
 extern void oneFinalizeCounts (OneFile *vf) ; // secret connection into ONElib.c for checking
+
+// forward declarations for utilities at the end of the file
+void die (char *format, ...) ;
+void timeUpdate (FILE *f) ;
+void timeTotal (FILE *f) ;
 
 int main (int argc, char **argv)
 { int        i ;
@@ -127,30 +130,11 @@ int main (int argc, char **argv)
     {
       //  Read data portion of file checking syntax and group sizes (if present)
 
-      { I64 lastObj = 0, lastSize = 0, lastLine = 0 ;
-	
-	lastObj = lastSize = lastLine = 0 ;
-	while (oneReadLine (vf))
-	  if (vf->lineType == vf->groupType)
-	    { if (lastLine > 0 && vf->object - lastObj != lastSize)
-		{ fprintf (stderr, "group size mismatch: group %c at line %" PRId64 " asserted %" PRId64 " objects",
-			   vf->groupType,  lastLine,  lastSize);
-		  fprintf (stderr, " but found %" PRId64 "\n", vf->object-lastObj) ;
-		}
-	      lastLine = vf->line ;
-	      lastSize = oneInt(vf,0) ;
-	      lastObj  = vf->object ;
-	    }
-	if (lastLine && vf->object - lastObj != lastSize)
-	  { fprintf (stderr, "group size mismatch: group %c at line %" PRId64 " asserted %" PRId64 " objects",
-		     vf->groupType,  lastLine,  lastSize) ;
-	    fprintf (stderr, " but found %" PRId64 "\n",  vf->object-lastObj) ;
-	  }
-      }
+      while (oneReadLine (vf)) ;
 
       if (isVerbose)
-	fprintf (stderr, "read %" PRId64 " objects in %" PRId64 " lines from OneFile %s type %s\n",
-		  vf->object,  vf->line, argv[0], vf->fileType) ;
+	fprintf (stderr, "read %" PRId64 " lines from OneFile %s type %s\n",
+		 vf->line, argv[0], vf->fileType) ;
 
       oneFinalizeCounts (vf) ;
     
@@ -171,20 +155,18 @@ int main (int argc, char **argv)
    nTotal += 1 ;
 
 	for (i = 0; i < 128; i++)
-	  if (((i >= 'A' && i <= 'Z') || i == vf->groupType) && vf->info[i] != NULL)
+	  if (((i >= 'A' && i <= 'Z') || (i >= 'a' && i <= 'z')) && vf->info[i] != NULL)
 	    { OneInfo *li = vf->info[i] ;
 	      CHECK(given.count, accum.count, "count") ;
 	      CHECK(given.max, accum.max, "max") ;
 	      CHECK(given.total, accum.total, "total") ;
-	      CHECK(given.groupCount, accum.groupCount, "group count") ;
-	      CHECK(given.groupTotal, accum.groupTotal, "group total") ;
 	  }
 	if (isVerbose || nBad || nMissing)
 	  fprintf (stderr, "expected %" PRId64 " header content lines, of which %" PRId64 " bad and %" PRId64 " missing\n",
 		    nTotal,  nBad,  nMissing) ;
       }
 
-  //  Write header if requested
+  //  Write header if requested - achieved by writing a "from" file with no lines
 
       if (isHeader)
 	{ OneFile *vfOut = oneFileOpenWriteFrom (outFileName, vf, false, 1) ;
@@ -206,5 +188,85 @@ int main (int argc, char **argv)
 
   exit (0) ;
 }
+
+/********************* utilities *************************/
+
+
+void die (char *format, ...)
+{
+  va_list args ;
+
+  va_start (args, format) ;
+  fprintf (stderr, "FATAL ERROR: ") ;
+  vfprintf (stderr, format, args) ;
+  fprintf (stderr, "\n") ;
+  va_end (args) ;
+
+  exit (-1) ;
+}
+
+/***************** rusage for timing information ******************/
+
+#include <sys/resource.h>
+#ifndef RUSAGE_SELF     /* to prevent "RUSAGE_SELF redefined" gcc warning, fixme if this is more intricate */
+#define RUSAGE_SELF 0
+#endif
+
+#ifdef RUSAGE_STRUCTURE_DEFINITIONS
+struct rusage {
+  struct timeval ru_utime; /* user time used */
+  struct timeval ru_stime; /* system time used */
+  long ru_maxrss;          /* integral max resident set size */
+  long ru_ixrss;           /* integral shared text memory size */
+  long ru_idrss;           /* integral unshared data size */
+  long ru_isrss;           /* integral unshared stack size */
+  long ru_minflt;          /* page reclaims */
+  long ru_majflt;          /* page faults */
+  long ru_nswap;           /* swaps */
+  long ru_inblock;         /* block input operations */
+  long ru_oublock;         /* block output operations */
+  long ru_msgsnd;          /* messages sent */
+  long ru_msgrcv;          /* messages received */
+  long ru_nsignals;        /* signals received */
+  long ru_nvcsw;           /* voluntary context switches */
+  long ru_nivcsw;          /* involuntary context switches */
+};
+
+struct timeval {
+  time_t       tv_sec;   /* seconds since Jan. 1, 1970 */
+  suseconds_t  tv_usec;  /* and microseconds */
+} ;
+#endif /* RUSAGE STRUCTURE_DEFINITIONS */
+
+static struct rusage rOld, rFirst ;
+
+void timeUpdate (FILE *f)
+{
+  static bool isFirst = 1 ;
+  struct rusage rNew ;
+  int secs, usecs ;
+
+  getrusage (RUSAGE_SELF, &rNew) ;
+  if (!isFirst)
+    { secs = rNew.ru_utime.tv_sec - rOld.ru_utime.tv_sec ;
+      usecs =  rNew.ru_utime.tv_usec - rOld.ru_utime.tv_usec ;
+      if (usecs < 0) { usecs += 1000000 ; secs -= 1 ; }
+      fprintf (f, "user\t%d.%06d", secs, usecs) ;
+      secs = rNew.ru_stime.tv_sec - rOld.ru_stime.tv_sec ;
+      usecs =  rNew.ru_stime.tv_usec - rOld.ru_stime.tv_usec ;
+      if (usecs < 0) { usecs += 1000000 ; secs -= 1 ; }
+      fprintf (f, "\tsystem\t%d.%06d", secs, usecs) ;
+      fprintf (f, "\tmax_RSS\t%ld", rNew.ru_maxrss - rOld.ru_maxrss) ;
+      fputc ('\n', f) ;
+    }
+  else
+    { rFirst = rNew ;
+      isFirst = false ;
+    }
+
+  rOld = rNew ;
+}
+
+void timeTotal (FILE *f) { rOld = rFirst ; timeUpdate (f) ; }
 
 /********************* end of file ***********************/
