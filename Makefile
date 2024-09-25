@@ -1,7 +1,7 @@
 # makefile for gaffer developed on Richard's Mac
 
-#CFLAGS= -DMACOS -O3
-CFLAGS= -DMACOS -g -target arm64-apple-macos11	# for debugging
+CFLAGS= -DMACOS -O3
+#CFLAGS= -DMACOS -g -target arm64-apple-macos11	# for debugging
 #CFLAGS= -DLINUX -O3 -DOMP -fopenmp		# for OMP parallelisation - doesn't compile on Mac
 
 ALL=gaffer seqconvert seqstat ONEview ONEstat syng syngprune seqextract
