@@ -5,7 +5,7 @@
  * Description: buffered package to read arbitrary sequence files - much faster than readseq
  * Exported functions:
  * HISTORY:
- * Last edited: Nov 27 16:56 2023 (rd109)
+ * Last edited: Aug 18 21:15 2024 (rd109)
  * * Dec 15 09:45 2022 (rd109): separated out 2bit packing/unpacking into SeqPack
  * Created: Fri Nov  9 00:21:21 2018 (rd109)
  *-------------------------------------------------------------------
@@ -115,8 +115,11 @@ SeqIO *seqIOopenRead (char *filename, int* convert, bool isQual)
 	  si->totSeqLen = vf->info['S']->given.total ;
 	  si->maxSeqLen = vf->info['S']->given.max ;
 	  si->seqBuf = new0 (si->maxSeqLen+1,char) ;
-	  si->qualBuf = new0 (si->maxSeqLen+1,char) ;
 	}
+      if (si->isQual && vf->info['Q'] && vf->info['Q']->given.count)
+	si->qualBuf = new0 (si->maxSeqLen+1,char) ;
+      else
+	si->isQual = false ;
       while (oneReadLine (vf) && vf->lineType != 'S') ; // move up to first sequence line
       si->seqStart = 0 ;
     }
@@ -158,20 +161,20 @@ void seqIOclose (SeqIO *si)
 	  *(U64*)si->b = si->maxSeqLen ; si->b += 8 ;
 	  seqIOflush (si) ;
 	}
-#ifdef ONEIO
-      if (si->type == ONE)
-	oneFileClose ((OneFile*)si->handle) ;
-#endif
-#ifdef BAMIO
-      if (si->type == BAM)
-	bamFileClose (si->handle) ;
-#endif
     }
   free (si->buf) ;
   if (si->seqBuf) free (si->seqBuf) ;
   if (si->qualBuf) free (si->qualBuf) ;
   if (si->gzf) gzclose (si->gzf) ;
   if (si->fd) close (si->fd) ;
+#ifdef ONEIO
+  if (si->type == ONE)
+    oneFileClose ((OneFile*)si->handle) ;
+#endif
+#ifdef BAMIO
+  if (si->type == BAM)
+    bamFileClose (si->handle) ;
+#endif
   free (si) ;
 }
 
@@ -258,6 +261,11 @@ bool seqIOread (SeqIO *si)
 	      si->idStart = 0 ; strcpy (si->buf, oneString(vf)) ;
 	      si->descStart = si->idLen+1 ;
 	      if (desc) strcpy (si->buf+si->descStart, desc) ; else si->buf[si->descStart] = 0 ;
+	    }
+	  if (vf->lineType == 'N')
+	    { int n = oneInt(vf,2) ;
+	      char base = si->convert ? si->convert[(int)oneChar(vf,1)] : oneChar(vf,1) ;
+	      while (n--) si->seqBuf[oneInt(vf,0)+n] = base ;
 	    }
 	}
       return true ;
@@ -347,24 +355,15 @@ bool seqIOread (SeqIO *si)
 
 /*********************** open for writing ***********************/
 
-#ifdef ONEIO
-static char *schemaText =
-  "1 3 def 1 0  schema for seqio\n"
-  ".\n"
-  "P 3 seq SEQUENCE\n"
-  "O S 1 3 DNA             sequence: the DNA string\n"
-  "D I 1 6 STRING          id: (optional) sequence identifier\n"
-  "D Q 1 6 STRING          quality: Q values (ascii string = q+33)\n"
-  "D H 2 3 INT 8 INT_LIST  hoco: uncompressed seqlen, then run length for each base\n"
-  "G g 2 3 INT 6 STRING    group: count, name (e.g. use for flow cell/lane grouping)\n" ;
-#endif
-
 SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThresh)
 {
   SeqIO *si = new0 (1, SeqIO) ;
-  int nameLen = strlen (filename) ;
-  bool isGzip = false ;
 
+  int nameLen = strlen (filename) ;
+  char *ext ; // extension
+  for (ext = filename + nameLen ; ext > filename && *--ext != '.' ;) { ; } ++ext ;
+  bool isGzip = !strcmp (ext, "gz") ;
+  
   si->isWrite = true ;
   si->convert = convert ;
   si->isQual = (qualThresh > 0) ;
@@ -376,25 +375,23 @@ SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThr
   if (type)
     si->type = type ;
   else
-    { char *s ;
-      for (s = filename+nameLen ; s > filename && *--s != '.' ;) ;
-      if (!strcmp (s, ".gz"))
-	{ isGzip = true ;
-	  if (nameLen > 6 && !strcmp (filename+nameLen-6, ".fa.gz")) si->type = FASTA ;
-	  if (nameLen > 6 && !strcmp (filename+nameLen-6, ".fq.gz")) si->type = FASTQ ;
+    { if (isGzip)
+	{ if ((nameLen > 9 && !strcmp (filename+nameLen-9, ".fasta.gz")) ||
+	      (nameLen > 6 && !strcmp (filename+nameLen-6, ".fa.gz"))) si->type = FASTA ;
+	  if ((nameLen > 9 && !strcmp (filename+nameLen-9, ".fastq.gz")) ||
+	      (nameLen > 6 && !strcmp (filename+nameLen-6, ".fq.gz"))) si->type = FASTQ ;
 	}
-      else if (!strcmp (s, ".fa")) si->type = FASTA ;
-      else if (!strcmp (s, ".fq")) si->type = FASTQ ;
-      else if (s[1] == '1') si->type = ONE ;
+      else if (!strcmp (ext, "fasta") || !strcmp (ext, "fa")) si->type = FASTA ;
+      else if (!strcmp (ext, "fastq") || !strcmp (ext, "fq")) si->type = FASTQ ;
+      else if (*ext == '1') si->type = ONE ;
       else { warn ("can't determine sequence file type for %s", filename) ; free(si) ; return 0 ; }
     }
   
   if (si->type == ONE) 
 #ifdef ONEIO
-    { OneSchema *schema = oneSchemaCreateFromText (schemaText) ;
+    { OneSchema *schema = oneSchemaCreateFromText (seqioSchemaText) ;
       char *oneType = "seq" ;
-      if (nameLen > 5 && *(filename+nameLen-5) == '.' && *(filename+nameLen-4) == '1')
-	oneType = filename+nameLen-3 ;
+      //      if (*ext == '1') ++ext ; oneType = ext ; // don't think I want this
       OneFile *vf = oneFileOpenWriteNew (filename, schema, oneType, true, 1) ;
       oneSchemaDestroy (schema) ;
       if (!vf) { free (si) ; return 0 ; }
@@ -447,6 +444,27 @@ SeqIO *seqIOopenWrite (char *filename, SeqIOtype type, int* convert, int qualThr
   return si ;
 }
 
+SeqIO *seqIOadoptOneFile (void *handle, int* convert, int qualThresh)
+{
+  if (!handle) return 0 ;
+  
+ #ifndef ONEIO
+  warn ("sorry, seqio not compiled with ONElib so can't write 1seq") ;
+  return 0 ;
+#else
+  if (!oneFileCheckSchemaText ((OneFile*)handle, seqioSchemaText)) return 0 ;
+  
+  SeqIO *si = new0 (1, SeqIO) ;
+  si->isWrite = true ;
+  si->convert = convert ;
+  si->isQual = (qualThresh > 0) ;
+  si->qualThresh = qualThresh ;
+  si->type = ONE ;
+  si->handle = handle ;
+  return si ;
+#endif
+}
+
 void seqIOflush (SeqIO *si)	/* writes buffer to file and resets to 0 */
 {
   if (!si->isWrite) return ;
@@ -472,6 +490,11 @@ void seqIOwrite (SeqIO *si, char *id, char *desc, U64 seqLen, char *seq, char *q
   assert (si->isWrite) ;
 
   ++si->nSeq ;
+
+  { static char buf[24] ;
+    if (si->type != ONE && !id) { id = buf ; sprintf (buf, "%lld", si->nSeq) ; }
+  }
+
   si->idLen = id ? strlen(id) : 0 ;
   si->totIdLen += si->idLen ; if (si->idLen > si->maxIdLen) si->maxIdLen = si->idLen ;
   si->descLen = desc ? strlen(desc) : 0 ;
@@ -484,27 +507,35 @@ void seqIOwrite (SeqIO *si, char *id, char *desc, U64 seqLen, char *seq, char *q
     { OneFile *vf = (OneFile*)(si->handle) ;
       static U64 bufLen = 0 ;
       static char *buf = 0 ;
+      static char idBuf[16] ;
+      I64 i ;
       if (seqLen > bufLen)
 	{ if (buf) free (buf) ;
 	  bufLen = seqLen ;
 	  buf = new(bufLen+1,char) ;
 	}
       if (si->convert)
-	{ int i ;
-	  for (i = 0 ; i < seqLen ; ++i) buf[i] = si->convert[(int)(seq[i])] ;
-	  oneWriteLine (vf, 'S', seqLen, buf) ;
+	{ for (i = 0 ; i < seqLen ; ++i) buf[i] = si->convert[(int)(seq[i])] ;
+	  seq = buf ;
 	}
-      else
-	oneWriteLine (vf, 'S', seqLen, seq) ;
+      oneWriteLine (vf, 'S', seqLen, seq) ;
       if (id)
 	{ oneWriteLine (vf, 'I', strlen (id), id) ;
 	  if (desc) oneWriteComment (vf, "%s", desc) ;
 	}
       if (qual && si->isQual)
-	{ int i ;
-	  for (i = 0 ; i < seqLen ; ++i) buf[i] = qual[i] + 33 ;
+	{ for (i = 0 ; i < seqLen ; ++i) buf[i] = qual[i] + 33 ;
 	  oneWriteLine (vf, 'Q', seqLen, buf) ;
 	}
+      for (i = 0 ; i < seqLen ; ++i) // write exceptions for non-ACGT characters
+	if (!acgtCheck[seq[i]])
+	  { oneInt(vf,0) = i ;
+	    char c = oneChar(vf,1) = seq[i] ;
+	    I64 n = 1 ;
+	    while (++i < seqLen && seq[i] == c) n++ ;
+	    oneInt(vf,2) = n ;
+	    oneWriteLine (vf, 'N', 0, 0) ;
+	  }
       return ;
     }
 #endif
@@ -567,7 +598,7 @@ char* seqRevComp (char* s, U64 len) // index and text (including ambig)
 {
   char *r = new(len,char) ;
   r += len ;
-  while (len--) *--r = complementBase[*s++] ;
+  while (len--) *--r = complementBase[(int)*s++] ;
   return r ;
 }
 
@@ -610,16 +641,17 @@ U8* seqPack (SeqPack *sp, char *s, U8 *u, U64 len) /* compress s into (len+3)/4 
 {
   if (!u) u = new((len+3)/4,U8) ;
   U8 *u0 = u ;
-  int i ;
   while (len >= 4)
-    { *u++ = packConv[s[0]] | (packConv[s[1]] << 2) | (packConv[s[2]] << 4) | (packConv[s[3]] << 6) ;
+    { *u++ = packConv[(int)s[0]] | (packConv[(int)s[1]] << 2) |
+	(packConv[(int)s[2]] << 4) | (packConv[(int)s[3]] << 6) ;
       len -= 4 ; s += 4 ;
     }
   switch (len)
     {
-    case 3: *u++ = packConv[s[0]] | (packConv[s[1]] << 2) | (packConv[s[2]] << 4) ; break ;
-    case 2: *u++ = packConv[s[0]] | (packConv[s[1]] << 2) ; break ;
-    case 1: *u++ = packConv[s[0]] ; break ;
+    case 3: *u++ = packConv[(int)s[0]] | (packConv[(int)s[1]] << 2) |
+	(packConv[(int)s[2]] << 4) ; break ;
+    case 2: *u++ = packConv[(int)s[0]] | (packConv[(int)s[1]] << 2) ; break ;
+    case 1: *u++ = packConv[(int)s[0]] ; break ;
     case 0: break ;
     }
   return u0 ;
@@ -947,6 +979,19 @@ int noConv[] = {
  112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127
 } ;
 
+int acgtCheck[] = {
+  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 
+  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 
+  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 
+  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 
+  0,  1,  0,  1,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,
+  0,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+  0,  1,  0,  1,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,
+  0,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+} ;
+
+
+
 // complements index and text DNA bases
 // ambiguity codes and complements are at: https://droog.gs.washington.edu/parc/images/iupac.html
 
@@ -1043,10 +1088,10 @@ bool bamRead (SeqIO *si)
 
   char *bseq = (char*) bam_get_seq (bf->b) ;
   char *s = si->seqBuf ;
-  if (bf->b->core.flag & BAM_FREVERSE)
-    for (i = si->seqLen ; i-- ; )
-      *s++ = binaryAmbig2text[(int)binaryAmbigComplement[(int)bam_seqi(bseq,i)]] ;
-  else
+  //  if (bf->b->core.flag & BAM_FREVERSE)
+  //    for (i = si->seqLen ; i-- ; )
+  //      *s++ = binaryAmbig2text[(int)binaryAmbigComplement[(int)bam_seqi(bseq,i)]] ;
+  //  else
     for (i = 0 ; i < si->seqLen ; ++i)
       *s++ = binaryAmbig2text[bam_seqi(bseq,i)] ;
   if (si->convert)
