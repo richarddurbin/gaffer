@@ -26,7 +26,8 @@
  * Exported functions:
  *              See Header file: array.h (includes lots of macros)
  * HISTORY:
- * Last edited: May 29 12:52 2023 (rd109)
+ * Last edited: Sep  5 20:18 2024 (rd109)
+ * * Aug 31 22:04 2024 (rd109): added ArrayPool
  * * Feb 14 11:21 2011 (rd): modified in 2009/10 by RD for stand-alone use
  * Created: Thu Dec 12 15:43:25 1989 (mieg)
  *-------------------------------------------------------------------
@@ -92,8 +93,8 @@ Array uArrayReCreate (Array a, U64 n, U64 size)
   if (n < 1) n = 1 ;
 
   if (a->dim < n || (a->dim - n)*size > (1 << 20) ) /* free if save > 1 MB */
-    { totalAllocatedMemory -= a->dim * size ;
-      free (a->base) ;
+    { totalAllocatedMemory -= a->dim * size ; 
+      free (a->base) ; totalAllocated -= a->dim * size ;
       a->dim = n ;
       totalAllocatedMemory += a->dim * size ;
       /* base-mem isn't alloc'd on handle, it's free'd by finalisation */
@@ -113,15 +114,15 @@ void arrayDestroy (Array a)
   if (!arrayExists (a))
     die ("arrayDestroy called on bad array %lx", (long unsigned int) a) ;
 
-  totalAllocatedMemory -= a->dim * a->size ;
+  totalAllocatedMemory -= a->dim * a->size ; 
   totalNumberActive-- ;
 #ifdef ARRAY_REPORT
   if (reportArray)
     arr(reportArray, a->id, Array) = 0 ;
 #endif
   a->magic = 0 ;
-  free (a->base) ;
-  free (a) ;
+  free (a->base) ; totalAllocated -= a->dim * a->size ;
+  free (a) ; totalAllocated -= sizeof(struct ArrayStruct) ;
 }
 
 /**************/
@@ -151,7 +152,7 @@ void arrayExtend (Array a, U64 n)
   if (n < a->dim)
     return ;
 
-  totalAllocatedMemory -= a->dim * a->size ;
+  totalAllocatedMemory -= a->dim * a->size ; totalAllocated -= a->dim * a->size ;
   if (a->dim*a->size < 1 << 23)	/* 8MB */
     a->dim *= 2 ;
   else
@@ -222,7 +223,10 @@ Array   arrayRead (FILE *f)
   Array a = new (1, struct ArrayStruct) ;
   if (fread (a, sizeof(struct ArrayStruct), 1, f) != 1) return 0 ;
   a->base = myalloc (a->size*a->dim) ;
-  if (fread (a->base, a->size, a->dim, f) != a->dim) { free(a) ; return 0 ; }
+  if (fread (a->base, a->size, a->dim, f) != a->dim)
+    { free (a->base) ; free (a) ; totalAllocated -= a->size*a->dim + sizeof(struct ArrayStruct) ;
+      return 0 ;
+    }
 #ifdef ARRAY_REPORT
   a->id = ++totalNumberCreated ;
   if (reportArray)
@@ -443,5 +447,4 @@ void arrayStatus (U64 *nmadep, U64 *nusedp, U64 *memAllocp, U64 *memUsedp)
 }
 
 /************************  end of file ********************************/
-/**********************************************************************/
  

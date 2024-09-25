@@ -5,7 +5,7 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: Dec 18 17:22 2023 (rd109)
+ * Last edited: Sep  9 10:45 2024 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
@@ -58,21 +58,26 @@ void storeCommandLine (int argc, char **argv)
 
 char *getCommandLine (void) { return commandLine ; }
 
-long totalAllocated = 0 ;
+unsigned long totalAllocated = 0 ;
+static unsigned long maxAllocated = 0 ;
 
 void *myalloc (size_t size)
 {
   void *p = (void*) malloc (size) ;
-  if (!p) die ("myalloc failure requesting %d bytes - totalAllocated %ld", size, totalAllocated) ;
+  if (!p) die ("myalloc failure requesting %d bytes - totalAllocated %lu", size, totalAllocated) ;
   totalAllocated += size ;
+  if (totalAllocated > maxAllocated) maxAllocated = totalAllocated ;
   return p ;
 }
 
 void *mycalloc (size_t number, size_t size)
 {
   void *p = (void*) calloc (number, size) ;
-  if (!p) die ("mycalloc failure requesting %d objects of size %d - totalAllocated %ld", number, size, totalAllocated) ;
+  if (!p)
+    die ("mycalloc failure requesting %ld objects of size %ld - totalAllocated %lu",
+	 number, size, totalAllocated) ;
   totalAllocated += size*number ;
+  if (totalAllocated > maxAllocated) maxAllocated = totalAllocated ;
   return p ;
 }
 
@@ -197,7 +202,7 @@ static struct timeval tOld, tFirst ;
 
 void timeUpdate (FILE *f)
 {
-  static bool isFirst = 1 ;
+  static bool isFirst = true ;
   struct rusage rNew ;
   struct timeval tNew ;
   int secs, usecs ;
@@ -216,8 +221,8 @@ void timeUpdate (FILE *f)
       secs = tNew.tv_sec - tOld.tv_sec ;
       usecs =  tNew.tv_usec - tOld.tv_usec ;
       if (usecs < 0) { usecs += 1000000 ; secs -= 1 ; }
-      fprintf (f, "\telapsed\t%d.%06d", secs, usecs) ;
-      fprintf (f, "\tallocated\t%.2f", totalAllocated/1000000000.0) ;   
+      fprintf (f, "\telapsed %d.%06d", secs, usecs) ;
+      fprintf (f, "\talloc_max %lu", maxAllocated/1000000) ;
       fprintf (f, "\tmax_RSS\t%ld", rNew.ru_maxrss - rOld.ru_maxrss) ;
       fputc ('\n', f) ;
     }
