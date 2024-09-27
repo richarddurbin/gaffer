@@ -4,7 +4,7 @@ CFLAGS= -DMACOS -O3
 #CFLAGS= -DMACOS -g -target arm64-apple-macos11	# for debugging
 #CFLAGS= -DLINUX -O3 -DOMP -fopenmp		# for OMP parallelisation - doesn't compile on Mac
 
-ALL=gaffer seqconvert seqstat ONEview ONEstat syng syngprune seqextract
+ALL=gaffer seqconvert seqstat ONEview syng syngprune seqextract
 
 DESTDIR=~/bin
 
@@ -59,9 +59,6 @@ syngprune: syngprune.c seqio.o ONElib.o $(UTILS_OBJS)
 	$(CC) $(CFLAGS) $^ -o $@ $(SEQIO_LIBS)
 
 ONEview: ONEview.c ONElib.o
-	$(CC) $(CFLAGS) $^ -o $@ -lz
-
-ONEstat: ONEstat.c ONElib.o
 	$(CC) $(CFLAGS) $^ -o $@ -lz
 
 ### end of file
