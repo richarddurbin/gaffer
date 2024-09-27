@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Sep 19 16:09 2024 (rd109)
+ * Last edited: Sep 27 09:26 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
