@@ -5,12 +5,16 @@
  * Description: fixed length DNA string hash set package (e.g. syncmers)
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 27 08:58 2024 (rd109)
+ * Last edited: Sep 27 22:51 2024 (rd109)
  * Created: Tue Sep  3 19:38:07 2024 (rd109)
  *-------------------------------------------------------------------
  */
 
 #include "kmerhash.h"
+
+static inline void Compress_DNA (int len, char *s, U64 *u) ;    // from s to u
+static inline void Compress_DNA_RC (int len, char *s, U64 *u) ; // from s to u
+static inline void Uncompress_DNA (int len, U64 *u, char *t) ;  // from u to t
 
 KmerHash *kmerHashCreate (U64 initialSize, int len)
 {
@@ -37,50 +41,29 @@ void kmerHashDestroy (KmerHash *kh)
   free (kh) ;         totalAllocated -= sizeof (KmerHash) ;
 }
 
-static U8 pack[] = {    /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are maintained */
-   0,   1,   2,   3,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   0,   0,   1,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   3,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   1,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   3,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0
-} ;
-
-static U8 packRC[] = {   /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are maintained */
-   3,   2,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 
-   0,   3,   0,   2,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   3,   0,   2,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0
+static U8 comp[] = {   /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are maintained */
+   3,   2, 1,   0,   0, 0, 0,   0, 0, 0, 0, 0, 0, 0,   0, 0, 
+   0,   0, 0,   0,   0, 0, 0,   0, 0, 0, 0, 0, 0, 0,   0, 0, 
+   0,   0, 0,   0,   0, 0, 0,   0, 0, 0, 0, 0, 0, 0,   0, 0, 
+   0,   0, 0,   0,   0, 0, 0,   0, 0, 0, 0, 0, 0, 0,   0, 0, 
+   0, 'T', 0, 'G',   0, 0, 0, 'C', 0, 0, 0, 0, 0, 0, 'N', 0,
+   0,   0, 0,   0, 'A', 0, 0,   0, 0, 0, 0, 0, 0, 0,   0, 0,
+   0, 't', 0, 'g',   0, 0, 0, 'c', 0, 0, 0, 0, 0, 0, 'n', 0,
+   0,   0, 0,   0, 'a', 0, 0,   0, 0, 0, 0, 0, 0, 0,   0, 0
 } ;
 
 static inline void packDNA (char *dna, U64 *u, int len, bool *isRC)
 {
-  int x = -1, y = len ; while (dna[++x] == 3-dna[--y]) ; // first find orientation
-  
-  //  printf ("%d%d%d%d%d", dna[0],dna[1],dna[2],dna[3],dna[4]) ;
-  //  printf (" x %d y %d", x, y) ;
-  if (dna[x] < 3 - dna[y])
+  int x = -1, y = len ;
+  while (dna[++x] == comp[dna[--y]]) ; // first find orientation
+  if (dna[x] < comp[dna[y]])
     { if (isRC) *isRC = false ;
-      for (x = 0 ; x < len ; )
-	{ *u = (*u << 2) + pack[*dna++] ;
-	  if (!(++x & 0x1f)) *++u = 0 ; // multiple of 32
-	}
+      Compress_DNA (len, dna, u) ;
     }
   else
     { if (isRC) *isRC = true ;
-      dna += len ;
-      for (x = 0 ; x < len ; )
-	{ *u = (*u << 2) + packRC[*--dna] ;
-	  if (!(++x & 0x1f)) *++u = 0 ; // multiple of 32
-	}
+      Compress_DNA_RC (len, dna, u) ;
     }
-  //  printf (" u %llx ori %c\n", *u, *isRC ? '-' : '+') ;
 }
 
 static inline bool isMatch (U64 *u, U64 *v, int n)
@@ -179,15 +162,8 @@ bool kmerHashAdd (KmerHash *kh, char *dna, U64 *index, bool *isRC)
 
 char* kmerHashSeq (KmerHash *kh, U64 i)
 {
-  static char *acgt = "acgt" ;
   if (i >= kh->max) die ("out of range in kmerHashSeq: %lld >= %lld", i, kh->max) ;
-  U64 *v = packseq(kh,i) + kh->plen - 1, u = *v ;
-  int j ;
-  char *s = kh->seqbuf + kh->len ;
-  for (j = kh->len ; j-- ; )
-    { *--s = acgt[(int)(u & 0x3)] ; u >>= 2 ;
-      if (j && !(j & 0x1f)) u = *--v ;
-    }
+  Uncompress_DNA (kh->len, packseq(kh,i), kh->seqbuf) ;
   return kh->seqbuf ;
 }
 
@@ -210,13 +186,27 @@ int main (int argc, char *argv[])
   if (argc != 4) die ("Usage: dnahash <len> <number> <target>") ;
   len = atoi(argv[1]) ; count = atoi(argv[2]) ; target = atoi(argv[3]) ;
 
+  KmerHash *kh = kmerHashCreate (0, len) ;
+
+  /* test the compression/decompression code
+  char *dna = "cagtatcttagatcctatgggagtacgagcgagcactagcggagggaggagcatcagcacgagcgagggcacaatcta" ;
+  char buf[50] ;
+  U64 u[2] ;
+  printf ("    %s\n", dna) ;
+  for (i = 1 ; i < 40 ; ++i)
+    { Compress_DNA (i, dna, u) ; Uncompress_DNA (i, u, buf) ; printf ("%2d  %-40s", (int)i, buf) ;
+      Compress_DNA_RC (i, dna, u) ; Uncompress_DNA (i, u, buf) ; printf ("  %40s\n", buf) ;
+    }
+  printf ("    %s\n", dna) ;
+  exit (0) ;
+  */
+  
   char *data = new(count*len, char) ;
   char *s = data ;
   for (i = 0 ; i < count ; ++i, s += len) seqSim(s) ;
   printf ("simulated %llu sequences of length %d\n", count, len) ;
   timeUpdate (stdout) ;
   
-  KmerHash *kh = kmerHashCreate (0, len) ;
   bool isRC ;
   U64 oriTotal[2] ; oriTotal[0] = 0 ; oriTotal[1] = 0 ;
   U64 index ;
@@ -242,5 +232,114 @@ int main (int argc, char *argv[])
 }
 
 #endif
+
+/*********** following ONElib.c, so representation is binary compatible ************/
+/*********** NB this means bases are naturally ordered in a little-endian machine **/
+
+static U8 pack[] = {    /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are maintained */
+   0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+} ;
+
+static inline void Compress_DNA (int len, char *s, U64 *u)
+{ int i ;
+  U8 *s0, *s1, *s2, *s3 ;
+  U8 *t = (U8*) u ;
+
+  s0 = (U8 *) s;
+  s1 = s0+1;
+  s2 = s1+1;
+  s3 = s2+1;
+
+  len -= 3;
+  for (i = 0; i < len; i += 4)
+    *t++ = pack[s0[i]] | (pack[s1[i]] << 2) | (pack[s2[i]] << 4) | (pack[s3[i]] << 6) ;
+  switch (i-len)
+  { case 0: *t++ = pack[s0[i]] | (pack[s1[i]] << 2) | (pack[s2[i]] << 4) ; break;
+    case 1: *t++ = pack[s0[i]] | (pack[s1[i]] << 2) ; break;
+    case 2: *t++ = pack[s0[i]] ; break;
+    default: break;
+  }
+}
+
+static U8 packRC[] = {   /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are maintained */
+   3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+   0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+} ;
+
+static inline void Compress_DNA_RC (int len, char *s, U64 *u)
+{ int    i, j;
+  U8 *s0, *s1, *s2, *s3;
+  U8 *t = (U8*) u ;
+
+  s0 = (U8 *) s;
+  s1 = s0+1;
+  s2 = s1+1;
+  s3 = s2+1;
+
+  for (i = len-4, j = 0; i >= 0; i -= 4)
+    t[j++] = packRC[s3[i]] | (packRC[s2[i]] << 2) | (packRC[s1[i]] << 4) | (packRC[s0[i]] << 6) ;
+  switch (-i)
+  { case 1: t[j++] = packRC[s3[i]] | (packRC[s2[i]] << 2) | (packRC[s1[i]] << 4) ; break;
+    case 2: t[j++] = packRC[s3[i]] | (packRC[s2[i]] << 2) ; break;
+    case 3: t[j++] = packRC[s3[i]] ; break;
+    default: break;
+  }
+}
+
+static char Base[4] = { 'a', 'c', 'g', 't' };
+
+static inline void Uncompress_DNA (int len, U64 *u, char *t)
+{ int   i, tlen, byte;
+  char *t0, *t1, *t2, *t3;
+  U8 *s = (U8*) u ;
+
+  t0 = t;
+  t1 = t0+1;
+  t2 = t1+1;
+  t3 = t2+1;
+
+  tlen = len-3;
+  for (i = 0; i < tlen; i += 4)
+    { byte = *s++;
+      t0[i] = Base[byte & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3];
+      t2[i] = Base[(byte >> 4) & 0x3];
+      t3[i] = Base[(byte >> 6) & 0x3];
+    }
+
+  switch (i-tlen)
+  { case 0:
+      byte = *s++;
+      t0[i] = Base[byte & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3];
+      t2[i] = Base[(byte >> 4) & 0x3];
+      break;
+    case 1:
+      byte = *s++;
+      t0[i] = Base[byte & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3];
+      break;
+    case 2:
+      byte = *s++;
+      t0[i] = Base[byte & 0x3];
+      break;
+    default:
+      break;
+  }
+  t[len] = 0 ; // 0 terminate
+}
 
 /*********** end of file ***********/
