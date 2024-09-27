@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: Sep  9 11:16 2024 (rd109)
+ * Last edited: Sep 27 08:56 2024 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -45,6 +45,7 @@ static void *threadProcess (void* arg) // find the start positions of all the sy
   I64 seqStart = 0 ;
   int syncmerLen = ti->sh->w + ti->sh->k - 1 ;
   U64 iSync ;
+  U64 *uBuf = new(ti->syncHash->plen,U64) ;
 
   arrayMax(ti->pos) = 0 ;
   arrayMax(ti->posLen) = 0 ;
@@ -60,12 +61,13 @@ static void *threadProcess (void* arg) // find the start positions of all the sy
 	  array(ti->pos, iPos, I64) = pos ;
 	  iSync = 0 ;
 	  bool isRC ;
-	  kmerHashFind (ti->syncHash, seq+pos, (U64*)&iSync, &isRC) ;
+	  kmerHashFindThreadSafe (ti->syncHash, seq+pos, (U64*)&iSync, &isRC, uBuf) ;
 	  array(ti->sync,iPos,I64) = isRC ? iSync : -iSync ; // will be 0 if not found
 	}
       array(ti->posLen, i, I64) = arrayMax(ti->pos) - posStart ;
     }
 
+  free (uBuf) ; totalAllocated -= ti->syncHash->plen * sizeof(U64) ;
   return 0 ;
 }
 
@@ -127,9 +129,10 @@ int main (int argc, char *argv[])
 
   fprintf (stderr, "k, w, seed are %d %d %d\n", params.k, params.w, params.seed) ;
   Seqhash *sh = seqhashCreate (params.k, params.w+1, params.seed) ; // need the +1 here - not nice, could fix
-  int syncmerLen = params.w + params.k - 1 ;
+  int syncmerLen = params.w + params.k ; // XX had -1 here XXXXXX
   syncHash = kmerHashCreate (0, syncmerLen) ; 
   ++syncHash->max ; // want first sync at 1 not 0
+  arrayp(syncs, 0, Sync)->n = 0 ; // for same reason
 
   if (!argc) die ("need to give at least one input sequence file\n%s", usage) ;
 
@@ -156,7 +159,7 @@ int main (int argc, char *argv[])
       ofSync = oneFileOpenWriteFrom (syncFileName, of, true, 1) ;
       if (!ofSync) die ("failed to reopen syncmer file %s to write", syncFileName) ;
       oneFileClose (of) ; // close the old file
-      printf ("read %llu syncs from %s\n", kmerHashMax(syncHash), syncFileName) ;
+      printf ("read %llu syncs from %s\n", kmerHashMax(syncHash)-1, syncFileName) ;
       timeUpdate (stdout) ;
     }
   else
@@ -176,7 +179,7 @@ int main (int argc, char *argv[])
   Array readSync = arrayCreate(64,I64) ;
   Array readDir = arrayCreate(64,char) ;
   U64 nSeq = 0, totSeq = 0, totSync = 0 ;
-  U64 nSeq0 = 0, totSeq0 = 0, syncMax0 = 0 ;
+  U64 nSeq0 = 0, totSeq0 = 0, syncMax0 = arrayMax(syncs) ;
 
   // threads don't end up saving much here, but this was a useful exercise
   
@@ -275,7 +278,7 @@ int main (int argc, char *argv[])
   if (sourceFile)
     printf ("combined total %llu sequences, total length %llu"
 	    ", yielding %llu instances of %llu syncmers, average %.2f coverage\n", 
-	    nSeq, totSeq, totSync, arrayMax(syncs), totSync / (double)arrayMax(syncs)) ; 
+	    nSeq, totSeq, totSync, arrayMax(syncs)-1, totSync / (double)(arrayMax(syncs)-1)) ; 
   
   oneFileClose (ofSeq) ;
   arrayDestroy (readSync) ;
