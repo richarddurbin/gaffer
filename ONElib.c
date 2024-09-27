@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Sep 27 09:26 2024 (rd109)
+ * Last edited: Sep 27 23:30 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
@@ -1006,7 +1006,8 @@ static inline void readCompressedFields (FILE *f, OneField *field, OneInfo *li)
   for (i = 0 ; i < li->nField ; ++i)
     switch (li->fieldType[i])
       {
-      case oneREAL: fread (&field[i].r, 8, 1, f) ; break ;
+      case oneREAL:
+	if (fread (&field[i].r, 8, 1, f) != 8) die ("failed to read real") ; break ;
       case oneCHAR: field[i].c = fgetc (f) ; break ;
       default: // includes INT and all the LISTs, which store their length in field as an INT
 	field[i].i = ltfRead (f) ;
@@ -2034,10 +2035,13 @@ bool oneAddProvenance(OneFile *vf, char *prog, char *version, char *format, ...)
 { va_list args ;
   OneProvenance p;
   time_t t = time(NULL);
+  int dummy ; // for compiler happiness
 
   p.program = prog;
   p.version = version;
-  va_start (args, format) ; vasprintf (&p.command, format, args) ; va_end (args) ;
+  va_start (args, format) ;
+  dummy = vasprintf (&p.command, format, args) ;
+  va_end (args) ;
   p.date = new (20, char);
   strftime(p.date, 20, "%F_%T", localtime(&t));
   addProvenance (vf, &p, 1);
@@ -2522,10 +2526,11 @@ void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 len, U8 *dnaBuf) // NB
 void oneWriteComment (OneFile *vf, char *format, ...)
 {
   char *comment ;
-  va_list args ;
+  int dummy ;
 
+  va_list args ;
   va_start (args, format) ; 
-  vasprintf (&comment, format, args) ; 
+  dummy = vasprintf (&comment, format, args) ; 
   va_end (args) ;
 
   if (vf->isCheckString) // then check no newlines in format

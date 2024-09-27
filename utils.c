@@ -5,13 +5,13 @@
  * Description: core utility functions
  * Exported functions:
  * HISTORY:
- * Last edited: Sep  9 10:45 2024 (rd109)
+ * Last edited: Sep 27 23:30 2024 (rd109)
  * * Feb 22 14:52 2019 (rd109): added fzopen()
  * Created: Thu Aug 15 18:32:26 1996 (rd)
  *-------------------------------------------------------------------
  */
 
-#ifdef LINUX
+#ifdef __linux__
 #define _GNU_SOURCE
 #endif
 
@@ -116,7 +116,7 @@ char *fgetword (FILE *f)
 
 FILE *fzopen(const char *path, const char *mode)
 {  /* very cool from https://stackoverflow.com/users/3306211/fernando-mut */
-#if defined(WITH_ZLIB) && (defined(MACOS) || defined(LINUX))
+#if defined(WITH_ZLIB) && (defined(MACOS) || defined(__linux__))
   gzFile zfp = 0 ;			/* fernando said *zfp - makes me worry.... */
 
   if (strlen(path) > 3 && !strcmp(&path[strlen(path)-3], ".gz")) // only gzopen on .gz files
