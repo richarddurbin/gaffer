@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Jun 10 08:21 2023 (rd109)
+ * Last edited: Sep 27 23:13 2024 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -129,7 +129,7 @@ Gfa *readOneFiles (char *stem)
 	die ("duplicate seg name line %d", vfs->line) ;
   // create shell OneFile to maintain header information
   gf->vf = oneFileOpenWriteFrom ("-", vfs, false, 1) ; gf->vf->isWrite = false ;
-  printf ("read file %s with %d segs\n", fileName, (int)vfs->object) ;
+  printf ("read file %s with %d segs\n", fileName, (int)oneObject(vfs,'S')) ;
   oneFileClose (vfs) ;
 
   Link *l ;
@@ -143,7 +143,7 @@ Gfa *readOneFiles (char *stem)
       }
     else if (vfl->lineType == 'O')
       l->overlap = oneInt(vfl,0) ;
-  printf ("read file %s with %d links\n", fileName, (int)vfl->object) ;
+  printf ("read file %s with %d links\n", fileName, (int)oneObject(vfl,'L')) ;
   oneFileClose (vfl) ;
 
   strcpy (fileName+stemLen, ".1segseq") ;
@@ -153,12 +153,12 @@ Gfa *readOneFiles (char *stem)
 	die ("schema mismatch %s", fileName) ;
       while (oneReadLine (vfd))
 	if (vfd->lineType == 'S')
-	  { Seq *s = arrp(gf->seq, 2*(vfd->object-1), Seq) ;
+	  { Seq *s = arrp(gf->seq, 2*(oneObject(vfd,'S')-1), Seq) ;
 	    assert (oneLen(vfd) == s->len) ;
 	    s->dna = new((s->len+3)/4, U8) ; memcpy (s->dna, oneDNA2bit(vfd), (s->len+3)/4) ;
 	    s[1].dna = seqRevCompPacked (s->dna, 0, s->len) ;
 	  }
-      printf ("read file %s with %d sequences\n", fileName, (int)vfd->object) ;
+      printf ("read file %s with %d sequences\n", fileName, (int)oneObject(vfd,'S')) ;
       oneFileClose (vfd) ;
     }
 
@@ -194,7 +194,7 @@ Gfa *readOneFiles (char *stem)
 	  case 'S': p->start = oneInt(vfp,0) ; break ;
 	  case 'E': p->end = oneInt(vfp,0) ; break ;
 	  }
-      printf ("read file %s with %d paths\n", fileName, (int)vfp->object) ;
+      printf ("read file %s with %d paths\n", fileName, (int)oneObject(vfp,'P')) ;
       oneFileClose (vfp) ;
     }
 
@@ -222,7 +222,7 @@ void writeOneFiles (Gfa *gf, char *stem)
 	  oneWriteLine (vfseg, 'I', strlen(name), name) ;
 	}	  
     }
-  fprintf (stderr, "wrote %d objects to %s\n", (int)vfseg->object, fileName) ;
+  fprintf (stderr, "wrote %d objects to %s\n", (int)oneObject(vfseg,'S'), fileName) ;
   oneFileClose (vfseg) ;
 
   if (arrayMax(gf->seq) && arrp(gf->seq, 0, Seq)->dna)
@@ -233,7 +233,7 @@ void writeOneFiles (Gfa *gf, char *stem)
 	{ Seq *s = arrp(gf->seq, i, Seq) ;
 	  oneWriteLineDNA2bit (vfseq, 'S', s->len, s->dna) ;
 	}
-      fprintf (stderr, "wrote %d objects to %s\n", (int)vfseq->object, fileName) ;
+      fprintf (stderr, "wrote %d objects to %s\n", (int)oneObject(vfseq,'S'), fileName) ;
       oneFileClose (vfseq) ;
     }
 
@@ -249,7 +249,7 @@ void writeOneFiles (Gfa *gf, char *stem)
       oneWriteLine (vfl, 'L', 0, 0) ;
       if (l->overlap) { oneInt(vfl,0) = l->overlap ; oneWriteLine (vfl, 'O', 0, 0) ; }
     }
-  fprintf (stderr, "wrote %d objects to %s\n", (int)vfl->object, fileName) ;
+  fprintf (stderr, "wrote %d objects to %s\n", (int)oneObject(vfl,'L'), fileName) ;
   oneFileClose (vfl) ;
 
   if (gf->path)
@@ -279,7 +279,7 @@ void writeOneFiles (Gfa *gf, char *stem)
 	  if (p->start) { oneInt(vfp,0) = p->start ; oneWriteLine (vfp, 'S', 0, 0) ; }
 	  if (p->end) { oneInt(vfp,0) = p->end ; oneWriteLine (vfp, 'E', 0, 0) ; }
 	}
-      fprintf (stderr, "wrote %d objects to %s\n", (int)vfp->object, fileName) ;
+      fprintf (stderr, "wrote %d objects to %s\n", (int)oneObject(vfp,'P'), fileName) ;
       oneFileClose (vfp) ;
     }
   
@@ -405,7 +405,7 @@ Gfa *gfaParseSL (char *filename)
       ++line ;
     }
   fclose (f) ;
-  printf ("read %" PRIu64 " S lines and %" PRIu64 " L lines from GFA file %s\n",
+  printf ("read %llu S lines and %llu L lines from GFA file %s\n",
 	  arrayMax(gf->seq), arrayMax(gf->link), filename) ;
   return gf ;
 }
@@ -422,7 +422,7 @@ static inline char* seqName (Gfa *gf, int i)
 static inline char* pathName (Gfa *gf, int i)
 { static char buf[64] ;
   if (gf->pathName) return dictName(gf->pathName, i) ;
-  else { sprintf (buf, "%" PRIu64 "", arrayMax(gf->seq)/2 + 1 + i) ; return buf ; }
+  else { sprintf (buf, "%llu", arrayMax(gf->seq)/2 + 1 + i) ; return buf ; }
 }
 
 void gfaWrite (Gfa *gf, char *file)
@@ -503,7 +503,7 @@ void linkRemoveDuplicates (Gfa *gf)
       if (lu->s1 != l->s1 || lu->s2 != l->s2 || lu->overlap != l->overlap) *++lu = *l ;
     }
   int newMax = lu - arrp(gf->link, 0, Link) + 1 ;
-  printf ("removed %" PRIu64 " duplicate links, leaving %d\n", arrayMax(gf->link) - newMax, newMax) ;
+  printf ("removed %llu duplicate links, leaving %d\n", arrayMax(gf->link) - newMax, newMax) ;
   arrayMax (gf->link) = newMax ;
 }
 
@@ -518,14 +518,14 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
       { index *= 2 ;
 	Seq *seq = arrp (gf->seq, index, Seq) ;
 	if (si->seqLen != seq->len)
-	  die ("length mismatch for %s seq %" PRId64 " != gfa %" PRId64 "", sqioId(si), si->seqLen, seq->len) ;
+	  die ("length mismatch for %s seq %lld != gfa %lld", sqioId(si), si->seqLen, seq->len) ;
 	seq->dna = seqPack (SP, sqioSeq(si), 0, si->seqLen) ;
 	++seq ; seq->dna = seqRevCompPacked (seq->dna, 0, si->seqLen) ;
 	total += si->seqLen ;
       }
     else
       die ("unknown sequence %s", sqioId(si)) ;
-  printf ("read %" PRId64 " sequences total %" PRId64 " from %s file %s\n",
+  printf ("read %lld sequences total %lld from %s file %s\n",
 	  si->nSeq, total, seqIOtypeName[si->type], filename) ;
   seqIOclose (si) ;
 }
@@ -553,7 +553,7 @@ void linkRemoveBad (Gfa *gf)
     }
 
   int newMax = ul - arrp(gf->link, 0, Link) ;
-  printf ("%" PRIu64 " imperfect overlaps removed, %d remain\n", arrayMax(gf->link) - newMax, newMax) ;
+  printf ("%llu imperfect overlaps removed, %d remain\n", arrayMax(gf->link) - newMax, newMax) ;
   arrayMax(gf->link) = newMax ;
 
   gf->isPerfect = true ;
@@ -762,10 +762,10 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
 
   // finally sort and compress the links
   arraySort (gf2->link, linkOrder1) ;
-  printf ("%" PRIu64 " initial new links before compression\n", arrayMax(gf2->link)) ;
+  printf ("%llu initial new links before compression\n", arrayMax(gf2->link)) ;
   arrayCompress (gf2->link) ;
 
-  printf ("made blunt gfa with %" PRIu64 " seqs, %" PRIu64 " links and %" PRIu64 " paths\n",
+  printf ("made blunt gfa with %llu seqs, %llu links and %llu paths\n",
 	  arrayMax(gf2->seq), arrayMax(gf2->link), arrayMax(gf2->path)) ;
 
   // now check the paths
@@ -773,7 +773,7 @@ Gfa *bluntify (Gfa *gf1) // returns a list of int arrays of cutpoints per seq
     { Seq *ps = arrp(gf1->seq, is, Seq) ; if (!ps->dna) continue ;
       Path *p = arrp(gf2->path, is, Path) ;
       if (is == X || is == RC(X)) // debug section
-	printf ("is %d path %" PRIu64 " segs %d start %d end\n",
+	printf ("is %d path %llu segs %d start %d end\n",
 		is, arrayMax(p->as), p->start, p->end) ;
       assert (p->start == 0 && p->end == 0) ; // code below currently requires this
       int i, j, n = 0 ;
@@ -857,7 +857,7 @@ int main (int argc, char *argv[])
 	{ if (gf) { fprintf (stderr, "removing existing gf\n") ; gfaDestroy (gf) ; }
 	  gf = gfaParseSL (argv[1]) ;
 	  linkRemoveDuplicates (gf) ;
-	  oneAddProvenance (gf->vf, "gaffer", VERSION, "readGfa %s // nS %" PRIu64 " nL %" PRIu64 " nP %" PRIu64 "", argv[1],
+	  oneAddProvenance (gf->vf, "gaffer", VERSION, "readGfa %s // nS %llu nL %llu nP %llu", argv[1],
 			    arrayMax(gf->seq), arrayMax(gf->link),
 			    gf->path ? arrayMax(gf->path) : 0) ;
 	  argc -= 2 ; argv += 2 ; 
@@ -878,7 +878,7 @@ int main (int argc, char *argv[])
       else if (!strcmp (*argv, "-removeBadLinks"))
 	{ if (gf)
 	    { linkRemoveBad (gf) ;
-	      oneAddProvenance (gf->vf, "gaffer", VERSION, "removeBadLinks // nL %" PRIu64 "",
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "removeBadLinks // nL %llu",
 				arrayMax (gf->link)) ;
 	    }
 	  else fprintf (stderr, "can't remove bad links without a graph\n") ;
@@ -887,7 +887,7 @@ int main (int argc, char *argv[])
       else if (!strcmp (*argv, "-blunt"))
 	{ if (gf)
 	    { Gfa *gf2 = bluntify (gf) ;
-	      oneAddProvenance (gf->vf, "gaffer", VERSION, "bluntify // nS %" PRIu64 " nL %" PRIu64 " nP %" PRIu64 "",
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "bluntify // nS %llu nL %llu nP %llu",
 				arrayMax(gf->seq), arrayMax(gf->link),
 				gf->path ? arrayMax(gf->path) : 0) ;
 	      gf2->vf = gf->vf ; gf->vf = 0 ; 
@@ -900,7 +900,7 @@ int main (int argc, char *argv[])
       else if (!strcmp (*argv, "-chain"))
 	{ if (gf)
 	    { Gfa *gf2 = chain (gf) ;
-	      oneAddProvenance (gf->vf, "gaffer", VERSION, "chain // nS %" PRIu64 " nL %" PRIu64 "",
+	      oneAddProvenance (gf->vf, "gaffer", VERSION, "chain // nS %llu nL %llu",
 				arrayMax(gf->seq), arrayMax(gf->link)) ;
 	      gf2->vf = gf->vf ; gf->vf = 0 ; 
 	      gfaDestroy (gf) ;

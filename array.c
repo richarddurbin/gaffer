@@ -26,7 +26,7 @@
  * Exported functions:
  *              See Header file: array.h (includes lots of macros)
  * HISTORY:
- * Last edited: Sep  5 20:18 2024 (rd109)
+ * Last edited: Sep 27 23:16 2024 (rd109)
  * * Aug 31 22:04 2024 (rd109): added ArrayPool
  * * Feb 14 11:21 2011 (rd): modified in 2009/10 by RD for stand-alone use
  * Created: Thu Dec 12 15:43:25 1989 (mieg)
@@ -415,7 +415,7 @@ void arrayReport (U64 j)
   U64 i ;
   Array a ;
 
-  fprintf(stderr, "Array report: %" PRIu64 " created, %" PRIu64 " active, %" PRIu64 " MB allocated\n",   
+  fprintf(stderr, "Array report: %llu created, %llu active, %llu MB allocated\n",   
 	  totalNumberCreated, totalNumberActive, totalAllocatedMemory/(1024*1024)) ;
 
   if (reportArray)
@@ -423,7 +423,7 @@ void arrayReport (U64 j)
       while (i-- && i > j)
 	{ a = arr (reportArray, i, Array) ;
 	  if (arrayExists(a))
-	    fprintf (stderr, " array %" PRIu64 "  size %" PRIu64 ", max %" PRIu64 "\n", i, a->size, a->max) ;
+	    fprintf (stderr, " array %llu size %llu max %llu\n", i, a->size, a->max) ;
 	}
     }
 }
