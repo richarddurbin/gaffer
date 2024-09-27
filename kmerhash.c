@@ -5,7 +5,7 @@
  * Description: fixed length DNA string hash set package (e.g. syncmers)
  * Exported functions:
  * HISTORY:
- * Last edited: Sep  6 00:47 2024 (rd109)
+ * Last edited: Sep 27 08:58 2024 (rd109)
  * Created: Tue Sep  3 19:38:07 2024 (rd109)
  *-------------------------------------------------------------------
  */
@@ -62,13 +62,14 @@ static U8 packRC[] = {   /* sends N (indeed any non-CGT) to A, except 0,1,2,3 ar
 static inline void packDNA (char *dna, U64 *u, int len, bool *isRC)
 {
   int x = -1, y = len ; while (dna[++x] == 3-dna[--y]) ; // first find orientation
-  // printf ("%d%d%d%d%d", dna[0],dna[1],dna[2],dna[3],dna[4]) ;
-  // printf (" x %d y %d", x, y) ;
+  
+  //  printf ("%d%d%d%d%d", dna[0],dna[1],dna[2],dna[3],dna[4]) ;
+  //  printf (" x %d y %d", x, y) ;
   if (dna[x] < 3 - dna[y])
     { if (isRC) *isRC = false ;
       for (x = 0 ; x < len ; )
 	{ *u = (*u << 2) + pack[*dna++] ;
-	  if (!(++x & 0x1f)) ++u ; // multiple of 32
+	  if (!(++x & 0x1f)) *++u = 0 ; // multiple of 32
 	}
     }
   else
@@ -76,15 +77,16 @@ static inline void packDNA (char *dna, U64 *u, int len, bool *isRC)
       dna += len ;
       for (x = 0 ; x < len ; )
 	{ *u = (*u << 2) + packRC[*--dna] ;
-	  if (!(++x & 0x1f)) ++u ; // multiple of 32
+	  if (!(++x & 0x1f)) *++u = 0 ; // multiple of 32
 	}
     }
-  // printf (" u %llx ori %c\n", *u, *isRC ? '-' : '+') ;
+  //  printf (" u %llx ori %c\n", *u, *isRC ? '-' : '+') ;
 }
 
 static inline bool isMatch (U64 *u, U64 *v, int n)
 {
   while (n--) if (*u++ != *v++) return false ;
+  // { printf (" mismatch %d %llx != %llx", n, *--u, *--v) ; return false ; }
   return true ;
 }
 
@@ -100,41 +102,55 @@ static inline U64 hashDelta (U64 *u, int plen, int dim)
 
 #define packseq(kh,i) ((kh)->pack + (i)*(kh)->plen)
 
-static inline bool find (KmerHash *kh, char *dna, U64 *index, bool *isRC, U64 *ploc)
+static inline bool find (KmerHash *kh, U64 *u, U64 *index, bool *isRC, U64 *ploc)
 {
   ++kh->finds ;
-  U64 *u = packseq(kh,kh->max) ; // pack into the next free slot in pack[]
-  packDNA (dna, u, kh->len, isRC) ;
   U64 loc = *u & kh->mask ; // initially try the simplest thing
   U64 delta = 0 ;
   U64 x = kh->table[loc] ;
-  // printf ("find: loc %0llx x %llu\n", loc, x) ;
+  //  printf ("find: loc %0llx x %llu", loc, x) ;
   while (x)
     { if (isMatch (u, packseq(kh,x-1), kh->plen)) // found
 	{ if (index) *index = x-1 ; return true ; }
+	//	{ if (index) *index = x-1 ; putchar ('\n') ; return true ; }
       if (!delta) delta = hashDelta (u, kh->plen, kh->dim) ;
       loc = (loc + delta) & kh->mask ;
       ++kh->deltas ;
       x = kh->table[loc] ;
+      //      printf (" loc %0llx x %llu", loc, x) ;
     }
   *ploc = loc ;
-  return false ; // not  found
+  //  putchar ('\n') ;
+  return false ; // not found
 }
 
 bool kmerHashFind (KmerHash *kh, char *dna, U64 *index, bool *isRC)
 {
+  U64 *u = packseq(kh,kh->max) ; // pack into the next free slot in pack[]
+  packDNA (dna, u, kh->len, isRC) ;
   U64 loc ;
-  return find (kh, dna,  index, isRC, &loc) ;
+  return find (kh, u,  index, isRC, &loc) ;
+}
+
+bool kmerHashFindThreadSafe (KmerHash *kh, char *dna, U64 *index, bool *isRC, U64 *u)
+{
+  packDNA (dna, u, kh->len, isRC) ; // pack into user-provided space
+  U64 loc ;
+  return find (kh, u,  index, isRC, &loc) ;
 }
 
 bool kmerHashAdd (KmerHash *kh, char *dna, U64 *index, bool *isRC)
 {
+  U64 *u = packseq(kh,kh->max) ; // pack into the next free slot in pack[]
+  packDNA (dna, u, kh->len, isRC) ;
   U64 loc ;
-  bool isFound = find (kh, dna, index, isRC, &loc) ;
+  //  printf ("add %llu\n", kh->max) ;
+  bool isFound = find (kh, u, index, isRC, &loc) ;
   if (isFound) return false ;
   
   if (index) *index = kh->max++ ;
   kh->table[loc] = kh->max ; // NB this is *index + 1, as required
+  //  printf ("setting kh->table[%0llx] = %llu\n", loc, kh->max) ;
   
   if (kh->max == kh->psize)  // need to double
     { ++kh->dim ;
@@ -165,12 +181,12 @@ char* kmerHashSeq (KmerHash *kh, U64 i)
 {
   static char *acgt = "acgt" ;
   if (i >= kh->max) die ("out of range in kmerHashSeq: %lld >= %lld", i, kh->max) ;
-  U64 u, *v = packseq(kh,i) ;
+  U64 *v = packseq(kh,i) + kh->plen - 1, u = *v ;
   int j ;
-  char *s = kh->seqbuf ;
-  for (j = 0 ; j < kh->len ; ++j)
-    { if (!(j & 0x1f)) u = *v++ ;
-      *s++ = acgt[(int)(u & 0x3)] ; u >>= 2 ;
+  char *s = kh->seqbuf + kh->len ;
+  for (j = kh->len ; j-- ; )
+    { *--s = acgt[(int)(u & 0x3)] ; u >>= 2 ;
+      if (j && !(j & 0x1f)) u = *--v ;
     }
   return kh->seqbuf ;
 }
@@ -207,8 +223,15 @@ int main (int argc, char *argv[])
   s = data ;
   for (i = 0 ; i < count ; ++i, s += len)
     { kmerHashAdd (kh, s, &index, &isRC) ;
+      if (i < 4) printf ("orientation[%llu] is %c\n", i, isRC ? '-' : '+') ;
       ++oriTotal[isRC] ;
     }
+
+  char *acgt = "acgt" ;
+  s = data + target*len ;
+  printf ("seq %d is  ", target) ; for (i = 0 ; i < len ; ++i) putchar (acgt[s[i]]) ; putchar ('\n') ;
+  printf ("hash %d is %s\n", target, kmerHashSeq (kh,target)) ;
+  
   printf ("loaded: max %lld finds %lld deltas %lld + %llu - %llu\n",
 	  kh->max, kh->finds, kh->deltas, oriTotal[0], oriTotal[1]) ;
   index = 0 ; kmerHashFind (kh, data + target*len, &index, &isRC) ;
