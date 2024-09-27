@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Nov 29 20:15 2023 (rd109)
+ * Last edited: Sep 27 23:44 2024 (rd109)
  * Created: Mon May 29 08:22:38 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -131,7 +131,7 @@ int main (int argc, char **argv)
   while (oneReadLine (seg))
     if (seg->lineType == 'K') array(kCounts, arrayMax(kCounts), int) = oneInt(seg,0) ;
   oneFileClose (seg) ;
-  fprintf (stderr, "read counts for %" PRIu64 " segments\n", arrayMax(kCounts)) ;
+  fprintf (stderr, "read counts for %llu segments\n", arrayMax(kCounts)) ;
   
   if (!isView)
     { if (argc != 2) die ("need two arguments when pruning, not %d\n%s", argc, usage) ;
@@ -152,7 +152,7 @@ int main (int argc, char **argv)
       { I64 *x = oneIntList(readsyn) ;
 	if (isView) view (object, units, min, max) ; else if (filter (units, min, max)) ++nFiltered ;
 	arrayMax(units) = 0 ;
-	object = readsyn->object ;
+	object = oneObject(readsyn,'S') ;
 	for (i = 0 ; i < oneLen(readsyn) ; ++i) arrayp(units,i,Unit)->seg = x[i] ;
  	for (i = 0 ; i < oneLen(readsyn) ; ++i) arrayp(units,i,Unit)->count = arr(kCounts,(int)x[i],int) ;
       }
@@ -168,7 +168,7 @@ int main (int argc, char **argv)
     view (object, units, min, max) ;
   else
     { if (filter (units, min, max)) ++nFiltered ;
-      fprintf (stderr, "filtered %d of %d objects\n", nFiltered, (int)readsyn->object+1) ;
+      fprintf (stderr, "filtered %d of %d objects\n", nFiltered, (int)oneObject(readsyn,'S')) ;
       oneFileClose (readsIn) ;
       oneFileClose (readsOut) ;
     }
