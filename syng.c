@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 27 08:56 2024 (rd109)
+ * Last edited: Sep 28 01:17 2024 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -26,8 +26,6 @@
 
 #include "syng.h"
 
-static char *acgt = "acgt", *tgca = "tgca" ; // normal and complemented
-
 typedef struct {
   Seqhash  *sh ;
   KmerHash *syncHash ;  // read-only here
@@ -43,7 +41,6 @@ static void *threadProcess (void* arg) // find the start positions of all the sy
   ThreadInfo *ti = (ThreadInfo*) arg ;
   int i ;
   I64 seqStart = 0 ;
-  int syncmerLen = ti->sh->w + ti->sh->k - 1 ;
   U64 iSync ;
   U64 *uBuf = new(ti->syncHash->plen,U64) ;
 
@@ -64,6 +61,7 @@ static void *threadProcess (void* arg) // find the start positions of all the sy
 	  kmerHashFindThreadSafe (ti->syncHash, seq+pos, (U64*)&iSync, &isRC, uBuf) ;
 	  array(ti->sync,iPos,I64) = isRC ? iSync : -iSync ; // will be 0 if not found
 	}
+      seqhashIteratorDestroy (sit) ;
       array(ti->posLen, i, I64) = arrayMax(ti->pos) - posStart ;
     }
 
@@ -180,8 +178,6 @@ int main (int argc, char *argv[])
   Array readDir = arrayCreate(64,char) ;
   U64 nSeq = 0, totSeq = 0, totSync = 0 ;
   U64 nSeq0 = 0, totSeq0 = 0, syncMax0 = arrayMax(syncs) ;
-
-  // threads don't end up saving much here, but this was a useful exercise
   
   if (nThread < 1) die ("number of threads %d must be at least 1", nThread) ;
   threads = new (nThread, pthread_t) ;
@@ -231,7 +227,6 @@ int main (int argc, char *argv[])
 	      I64 *syncList = arrp(ti->sync, 0, I64) ;
 	      char *seq = arrp(ti->seq, 0, char) ;
 	      int iRead, iPos ;
-	      I64 nFound = 0, nMissed = 0 ;
 	      for (iRead = 0 ; iRead < arrayMax(ti->posLen) ; ++iRead)
 		{ I64 posLen = arr(ti->posLen, iRead, I64) ;
 		  arrayMax(readSync) = 0 ; arrayMax(readDir) = 0 ;
@@ -240,14 +235,11 @@ int main (int argc, char *argv[])
 		      I64 iSync = syncList[iPos] ;
 		      bool isRC ;
 		      if (iSync)
-			{ ++nFound ;
-			  isRC = (iSync < 0) ;
+			{ isRC = (iSync < 0) ;
 			  if (isRC) iSync = -iSync ;
 			}
 		      else // add it here
-			{ ++nMissed ;
-			  kmerHashAdd (syncHash, seq+pos, (U64*)&iSync, &isRC) ;
-			}
+			kmerHashAdd (syncHash, seq+pos, (U64*)&iSync, &isRC) ;
 		      array(readDir,iPos,char) = isRC ? '-' : '+' ;
 		      arrayp(syncs,iSync,Sync)->n++ ;
 		      array(readSync,iPos,I64) = iSync ;
@@ -293,6 +285,7 @@ int main (int argc, char *argv[])
 
   arrayDestroy (syncs) ;
   kmerHashDestroy (syncHash) ;
+  seqhashDestroy (sh) ;
 	  
   fprintf (stderr, "total: ") ; timeTotal (stderr) ;
   return 0 ;

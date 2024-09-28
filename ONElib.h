@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Gene Myers, 2019-
  *
  * HISTORY:
- * Last edited: Sep  7 13:12 2024 (rd109)
+ * Last edited: Sep 28 00:33 2024 (rd109)
  * * Dec  3 06:01 2022 (rd109): remove oneWriteHeader(), switch to stdarg for oneWriteComment etc.
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
@@ -19,7 +19,6 @@
 
 #include <stdio.h>    // for FILE etc.
 #include <stdarg.h>   // for formatted writing in oneWriteComment(), oneAddProvenance()
-#include <inttypes.h> // for standard size int types and their PRI print macros
 #include <stdbool.h>  // for standard bool types
 #include <limits.h>   // for INT_MAX etc.
 #include <pthread.h>
@@ -268,7 +267,7 @@ bool oneFileCheckSchemaText (OneFile *of, const char *textSchema) ;
 
   // Report number of lines of specified lineType, maximum list length, total list length
 
-bool oneLineStats (OneFile *of, char lineType, I64 *count, I64 *max, I64 *total) ;
+bool oneStats (OneFile *of, char lineType, I64 *count, I64 *max, I64 *total) ;
 
   // Checks if file schema is consistent with provided schema.  Mismatches are reported to stderr.
   // Filetype and all linetypes must match.  File schema can contain additional linetypes.
@@ -353,9 +352,9 @@ bool oneInheritDeferred   (OneFile *of, OneFile *source);
   // Add all provenance/reference/deferred entries in source to header of of.  Must be
   //   called before first call to oneWriteLine.
 
-bool oneAddProvenance (OneFile *of, char *prog, char *version, char *format, ...);
-bool oneAddReference  (OneFile *of, char *filename, I64 count);
-bool oneAddDeferred   (OneFile *of, char *filename);
+bool oneAddProvenance (OneFile *of, const char *prog, const char *version, char *format, ...);
+bool oneAddReference  (OneFile *of, const char *filename, I64 count);
+bool oneAddDeferred   (OneFile *of, const char *filename);
 
   // Append provenance/reference/deferred to header information.  Must be called before
   //   first call to oneWriteLine.

@@ -5,7 +5,7 @@
  * Description: fixed length DNA string hash set package (e.g. syncmers)
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 27 22:51 2024 (rd109)
+ * Last edited: Sep 28 01:08 2024 (rd109)
  * Created: Tue Sep  3 19:38:07 2024 (rd109)
  *-------------------------------------------------------------------
  */
@@ -55,8 +55,8 @@ static U8 comp[] = {   /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are 
 static inline void packDNA (char *dna, U64 *u, int len, bool *isRC)
 {
   int x = -1, y = len ;
-  while (dna[++x] == comp[dna[--y]]) ; // first find orientation
-  if (dna[x] < comp[dna[y]])
+  while (dna[++x] == comp[(int)dna[--y]]) ; // first find orientation
+  if (dna[x] < comp[(int)dna[y]])
     { if (isRC) *isRC = false ;
       Compress_DNA (len, dna, u) ;
     }

@@ -7,15 +7,12 @@
 	see test main() at end for standard usage pattern
  * Exported functions: see seqhash.h
  * HISTORY:
- * Last edited: Jul 24 16:43 2023 (rd109)
+ * Last edited: Sep 28 01:20 2024 (rd109)
  * Created: Sat Feb 24 19:20:18 2018 (rd)
  *-------------------------------------------------------------------
  */
 
 #include "seqhash.h"
-
-static inline U64 rotateLeft (U64 x) { return (x << 2) | (x >> 62) ; }
-static inline U64 rotateRight (U64 x) { return (x << 62) | (x >> 2) ; }
 
 Seqhash *seqhashCreate (int k, int w, int seed)
 {
@@ -71,7 +68,7 @@ static inline U64 advanceHashRC (SeqhashIterator *si, bool *isForward)
 { Seqhash *sh = si->sh ;
   if (si->s < si->sEnd)
     { si->h = ((si->h << 2) & sh->mask) | *(si->s) ;
-      si->hRC = (si->hRC >> 2) | sh->patternRC[*(si->s)] ;
+      si->hRC = (si->hRC >> 2) | sh->patternRC[(int)*(si->s)] ;
       ++si->s ;
       return hashRC (si, isForward) ;
     }
@@ -98,7 +95,7 @@ SeqhashIterator *seqhashIterator (Seqhash *sh, char *s, int len)
     { int i ;			/* preinitialise the hashes for the first kmer */
       for (i = 0 ; i < sh->k ; ++i, ++si->s)
 	{ si->h = (si->h << 2) | *si->s ;
-	  si->hRC = (si->hRC >> 2) | sh->patternRC[*(si->s)] ;
+	  si->hRC = (si->hRC >> 2) | sh->patternRC[(int)*(si->s)] ;
 	}
       *si->hash = hashRC (si, si->isForward) ;
     }
@@ -109,7 +106,6 @@ bool seqhashNext (SeqhashIterator *si, U64 *kmer, int *pos, bool *isF)
 {
   if (si->isDone) return false ; /* we are done */
 
-  bool isForward ;
   if (kmer) *kmer = si->h ;
   if (pos) *pos = si->iStart ;
   if (isF) *isF = *si->isForward ;
@@ -159,7 +155,6 @@ bool minimizerNext (SeqhashIterator *si, U64 *kmer, int *pos, bool *isF) /* retu
   if (si->s >= si->sEnd) { si->isDone = true ; return true ; }
 
   int i ;	       	/* next update hash splitting into two cases */
-  U64 min = si->hash[si->iMin] ;     /* save this here for end case - see below */
   if (si->iMin >= si->iStart)
     for (i = si->iStart ; i <= si->iMin ; ++i)
       si->hash[i] = advanceHashRC (si, &si->isForward[i]) ;
@@ -335,5 +330,8 @@ int main (int argc, char *argv[])
 }
 
 #endif
+
+void seqhashForCompilerHappiness (Seqhash *sh, SeqhashIterator *sit)
+{ seqhashDestroy (sh) ; seqhashIteratorDestroy (sit) ; }
 
 /**************** end of file ****************/

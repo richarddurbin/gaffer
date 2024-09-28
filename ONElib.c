@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Sep 27 23:30 2024 (rd109)
+ * Last edited: Sep 28 00:41 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
@@ -1007,8 +1007,11 @@ static inline void readCompressedFields (FILE *f, OneField *field, OneInfo *li)
     switch (li->fieldType[i])
       {
       case oneREAL:
-	if (fread (&field[i].r, 8, 1, f) != 8) die ("failed to read real") ; break ;
-      case oneCHAR: field[i].c = fgetc (f) ; break ;
+	if (fread (&field[i].r, 8, 1, f) != 8) die ("failed to read a REAL") ;
+	break ;
+      case oneCHAR:
+	field[i].c = fgetc (f) ;
+	break ;
       default: // includes INT and all the LISTs, which store their length in field as an INT
 	field[i].i = ltfRead (f) ;
       }
@@ -2031,16 +2034,15 @@ bool addProvenance(OneFile *vf, OneProvenance *from, int n)
 bool oneInheritProvenance(OneFile *vf, OneFile *source)
 { return (addProvenance(vf, source->provenance, source->info['!']->accum.count)); }
 
-bool oneAddProvenance(OneFile *vf, char *prog, char *version, char *format, ...)
+bool oneAddProvenance(OneFile *vf, const char *prog, const char *version, char *format, ...)
 { va_list args ;
   OneProvenance p;
   time_t t = time(NULL);
-  int dummy ; // for compiler happiness
 
-  p.program = prog;
-  p.version = version;
+  p.program = (char*) prog; // cast to keep compiler happy - this is safe!
+  p.version = (char*) version; // cast to keep compiler happy - this is safe!
   va_start (args, format) ;
-  dummy = vasprintf (&p.command, format, args) ;
+  if (vasprintf (&p.command, format, args) == -1) die ("vasprintf failure") ;
   va_end (args) ;
   p.date = new (20, char);
   strftime(p.date, 20, "%F_%T", localtime(&t));
@@ -2088,9 +2090,9 @@ static bool addReference(OneFile *vf, OneReference *from, int n, bool isDeferred
 bool oneInheritReference(OneFile *vf, OneFile *source)
 { return (addReference(vf, source->reference, source->info['<']->accum.count, false)); }
 
-bool oneAddReference(OneFile *vf, char *filename, I64 count)
+bool oneAddReference(OneFile *vf, const char *filename, I64 count)
 { OneReference ref;
-  ref.filename = filename;
+  ref.filename = (char*) filename; // cast to keep compiler happy - this is safe!
   ref.count    = count;
   return (addReference(vf, &ref, 1, false));
 }
@@ -2098,19 +2100,20 @@ bool oneAddReference(OneFile *vf, char *filename, I64 count)
 bool oneInheritDeferred (OneFile *vf, OneFile *source)
 { return (addReference (vf, source->deferred, source->info['>']->accum.count, true)); }
 
-bool oneAddDeferred (OneFile *vf, char *filename)
+bool oneAddDeferred (OneFile *vf, const char *filename)
 { OneReference ref;
-  ref.filename = filename;
+  ref.filename = (char *) filename; // cast to keep compiler happy - this is safe!
   return (addReference (vf, &ref, 1, true));
 }
 
-bool oneLineStats (OneFile *of, char lineType, I64 *count, I64 *max, I64 *total)
+bool oneStats (OneFile *of, char lineType, I64 *count, I64 *max, I64 *total)
 {
-  OneInfo   *info = of->info[lineType] ;
-  if (!info) return false ;
-  OneCounts  counts = of->isWrite ? info->accum : info->given ;
+  OneInfo    *info = of->info[(int)lineType] ;
+  if (!info)  return false ;
+  
+  OneCounts   counts = of->isWrite ? info->accum : info->given ;
   if (count) *count = counts.count ;
-  if (max) *max = counts.max ;
+  if (max)   *max = counts.max ;
   if (total) *total = counts.total ;
   return true ;
 }
@@ -2526,11 +2529,10 @@ void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 len, U8 *dnaBuf) // NB
 void oneWriteComment (OneFile *vf, char *format, ...)
 {
   char *comment ;
-  int dummy ;
-
+  
   va_list args ;
   va_start (args, format) ; 
-  dummy = vasprintf (&comment, format, args) ; 
+  if (vasprintf (&comment, format, args) == -1) die ("vasprintf failure") ;
   va_end (args) ;
 
   if (vf->isCheckString) // then check no newlines in format
@@ -3790,7 +3792,7 @@ static inline I64 ltfRead (FILE *f)
     // }
   else if (u[0] & 0x20)
     { u[1] = getc (f) ; intGet (u, &val) ;
-    //      printf ("read %d n 2 u %02x %02x\n", (int)val, u[0], u[1]) ;
+      //      printf ("read %d n 2 u %02x %02x\n", (int)val, u[0], u[1]) ;
     }
   else
     { int n = 1 + (u[0] & 0x0f) ;
@@ -4124,7 +4126,7 @@ int main (int argc, char *argv[])
 
 /***********************************************************************************
  *
- *    UTILITIES: memory allocation, file opening, timer
+ *    UTILITIES: die(), memory allocation
  *    adapted from Richard's utilities
  *
  **********************************************************************************/
@@ -4172,4 +4174,3 @@ static void *mydup(size_t n, void *x, size_t size)
 }
 
 /********************* end of file ***********************/
-

@@ -6,7 +6,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 27 23:13 2024 (rd109)
+ * Last edited: Sep 28 01:02 2024 (rd109)
  * Created: Thu Mar 24 01:02:39 2022 (rd109)
  *-------------------------------------------------------------------
  */
@@ -258,7 +258,6 @@ void writeOneFiles (Gfa *gf, char *stem)
       if (!vfp) die ("can't open %s", fileName) ;
       Array aI64 = arrayCreate (64, I64) ;
       Array aDir = arrayCreate (64, char) ;
-      int j ;
       for (i = 0 ; i < arrayMax(gf->path) ; ++i)
 	{ Path *p = arrp(gf->path, i, Path) ;
 	  int j, n = arrayMax(p->as) ;
@@ -530,6 +529,7 @@ void readSeqFile (Gfa *gf, char *filename) // to be used in conjunction with GFA
   seqIOclose (si) ;
 }
 
+/*
 static void linkReport (Array a, int i, int n) // previously used for debugging
 { while (i < n)
     { Link *l = arrp(a, i, Link) ;
@@ -537,12 +537,12 @@ static void linkReport (Array a, int i, int n) // previously used for debugging
       ++i ;
     }
 }
+*/
 
 void linkRemoveBad (Gfa *gf)
 {
-  int i, j ;
+  int i ;
   
-  int nPerfect = 0, nImperfect = 0 ;
   Link *ul = arrp (gf->link, 0, Link) ;
   for (i = 0 ; i < arrayMax (gf->link) ; ++i)
     { Link *l = arrp (gf->link, i, Link) ;
@@ -559,7 +559,7 @@ void linkRemoveBad (Gfa *gf)
   gf->isPerfect = true ;
 }
 
-static int intOrder (const void *a, const void *b) { return *(int*)a - *(int*)b ; }
+// static int intOrder (const void *a, const void *b) { return *(int*)a - *(int*)b ; }
 
 int linkOrder2 (const void *a, const void *b) // by s2 then s1
 { Link *la = (Link*)a, *lb = (Link*)b ;
@@ -568,11 +568,13 @@ int linkOrder2 (const void *a, const void *b) // by s2 then s1
   return 0 ;
 }
 
+/*
 static int linkOrderSize (const void *a, const void *b) // by overlap size small to large
 { Link *la = (Link*)a, *lb = (Link*)b ;
   if (la->overlap < lb->overlap) return -1 ; else if (la->overlap > lb->overlap) return 1 ;
   return 0 ;
 }
+*/
 
 typedef struct {
   int x ;	// position of the cut
