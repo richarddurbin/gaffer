@@ -5,7 +5,7 @@
  * Description: includes standard system headers and own headers
  * Exported functions:
  * HISTORY:
- * Last edited: Sep  5 14:59 2024 (rd109)
+ * Last edited: Sep 29 17:50 2024 (rd109)
  * Created: Wed Jan  5 16:13:48 2011 (rd)
  *-------------------------------------------------------------------
  */
@@ -40,15 +40,17 @@ typedef unsigned long long U64 ;
 const static U64 U64MAX = 0xffffffffffffffff ;
 #endif
 
-void die (char *format, ...) ;
+void die  (char *format, ...) ;
 void warn (char *format, ...) ;
 
-extern unsigned long totalAllocated ;
-void *myalloc (size_t size) ;
+void *myalloc  (size_t size) ;
 void *mycalloc (size_t number, size_t size) ;
-#define	new(n,type)	(type*)myalloc((n)*sizeof(type))
-#define	new0(n,type)	(type*)mycalloc((n),sizeof(type))
-#define resize(x,nOld,nNew,T) { T* z = new((nNew),T) ; if (nOld < nNew) memcpy(z,x,(nOld)*sizeof(T)) ; else memcpy(z,x,(nNew)*sizeof(T)) ; free(x) ; totalAllocated -= (nOld)*sizeof(T) ; x = z ; }
+void *myresize (void* x, size_t nOld, size_t nNew, size_t size) ;
+void  myfree   (void* x, size_t size) ;
+#define	new(n,type)                 (type*)myalloc((n)*sizeof(type))
+#define	new0(n,type)	            (type*)mycalloc((n),sizeof(type))
+#define newResize(x,nOld,nNew,type) (type*) myresize((x),(nOld),(nNew),sizeof(type))
+#define	newFree(x,n,type)           myfree((x),(n)*sizeof(type))
 
 void  storeCommandLine (int argc, char *argv[]) ;
 char *getCommandLine (void) ;
