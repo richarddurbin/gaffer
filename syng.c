@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 28 01:17 2024 (rd109)
+ * Last edited: Sep 29 22:59 2024 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -28,12 +28,12 @@
 
 typedef struct {
   Seqhash  *sh ;
-  KmerHash *syncHash ;  // read-only here
+  KmerHash *kh ;        // read-only here
   Array     seq ;	// of char, input: concatenated sequences in index 0..3
   Array     seqLen ;	// of I64, input: per sequence
   Array     pos ;	// of I64, output: concatenated start positions of syncmers
   Array     posLen ;	// of I64, output: number of syncmers per sequence
-  Array     sync ;      // of I64, if non-zero, found in syncHash; -ve if reverse direction
+  Array     sync ;      // of I64, if non-zero, found in kh; -ve if reverse direction
 } ThreadInfo ;
 
 static void *threadProcess (void* arg) // find the start positions of all the syncmers
@@ -41,8 +41,8 @@ static void *threadProcess (void* arg) // find the start positions of all the sy
   ThreadInfo *ti = (ThreadInfo*) arg ;
   int i ;
   I64 seqStart = 0 ;
-  U64 iSync ;
-  U64 *uBuf = new(ti->syncHash->plen,U64) ;
+  I64 iSync ;
+  U64 *uBuf = new(ti->kh->plen,U64) ;
 
   arrayMax(ti->pos) = 0 ;
   arrayMax(ti->posLen) = 0 ;
@@ -57,15 +57,14 @@ static void *threadProcess (void* arg) // find the start positions of all the sy
 	{ I64 iPos = arrayMax(ti->pos) ;
 	  array(ti->pos, iPos, I64) = pos ;
 	  iSync = 0 ;
-	  bool isRC ;
-	  kmerHashFindThreadSafe (ti->syncHash, seq+pos, (U64*)&iSync, &isRC, uBuf) ;
-	  array(ti->sync,iPos,I64) = isRC ? iSync : -iSync ; // will be 0 if not found
+	  kmerHashFindThreadSafe (ti->kh, seq+pos, &iSync, uBuf) ;
+	  array(ti->sync,iPos,I64) = iSync ; // will be 0 if not found
 	}
       seqhashIteratorDestroy (sit) ;
       array(ti->posLen, i, I64) = arrayMax(ti->pos) - posStart ;
     }
 
-  free (uBuf) ; totalAllocated -= ti->syncHash->plen * sizeof(U64) ;
+  newFree (uBuf, ti->kh->plen, U64) ;
   return 0 ;
 }
 
@@ -97,17 +96,16 @@ static char usage[] =
 
 int main (int argc, char *argv[])
 {
-  char *outPrefix = "syngOut" ;
-  char *syncFileName = 0 ;
-  int nThread = 8 ;
-  pthread_t *threads ;
+  char       *outPrefix = "syngOut" ;
+  char       *syncFileName = 0 ;
+  int         nThread = 8 ;
+  pthread_t  *threads ;
   ThreadInfo *threadInfo ;
-  SeqIO *sio ;
-  OneSchema *schema = oneSchemaCreateFromText (syngSchemaText) ;
+  SeqIO      *sio ;
+  OneSchema  *schema = oneSchemaCreateFromText (syngSchemaText) ;
+  KmerHash   *kh ;
 
   timeUpdate (0) ;
-
-  syncs = arrayCreate (1<<20, Sync) ;
 
   params.k = PARAMS_K_DEFAULT ;
   params.w = PARAMS_W_DEFAULT ;
@@ -127,48 +125,50 @@ int main (int argc, char *argv[])
 
   fprintf (stderr, "k, w, seed are %d %d %d\n", params.k, params.w, params.seed) ;
   Seqhash *sh = seqhashCreate (params.k, params.w+1, params.seed) ; // need the +1 here - not nice, could fix
-  int syncmerLen = params.w + params.k ; // XX had -1 here XXXXXX
-  syncHash = kmerHashCreate (0, syncmerLen) ; 
-  ++syncHash->max ; // want first sync at 1 not 0
-  arrayp(syncs, 0, Sync)->n = 0 ; // for same reason
 
-  if (!argc) die ("need to give at least one input sequence file\n%s", usage) ;
+  U64 nSeq = 0, totSeq = 0, totSync = 0 ;
 
   OneFile *ofSync ;
-  if (syncFileName) // open it, check hash match and read it in
-    { OneFile *of = oneFileOpenRead (syncFileName, schema, "sync", 1) ;
+  if (syncFileName) // open it, check hash match and read in the syncmer hash and the node counts
+    { OneFile *of = oneFileOpenRead (syncFileName, schema, "khash", 1) ;
       if (!of) die ("failed to open syncmer file %s to read", syncFileName) ;
-      char *dna ;
-      U64   iSync ;
-      while (oneReadLine (of))
-	switch (of->lineType)
-	  {
-	  case 'h':
-	    checkParams (of) ; break ;
-	  case 'S':
-	    dna = oneDNAchar(of) ;
-	    if (!kmerHashAdd (syncHash, dna, &iSync, 0))
-	      warn ("failed to add DNA %lld = %s", kmerHashMax(syncHash), dna) ;
-	    break ;
-	  case 'K':
-	    arrayp (syncs, iSync, Sync)->n = oneInt(of,0) ;
-	    break ;
-	  }
+
+      // read the syncmer hash parameters
+      while (oneReadLine (of) && of->lineType != 'h') ;
+      if (of->lineType == 'h') checkParams (of) ;
+      else die ("sync file %s has no 'h' parameters record", syncFileName) ;
+
+      // read in the kmerhash
+      kh = kmerHashReadOneFile (of) ;
+      if (kh->len != params.w + params.k)
+	die ("syncmer len mismatch %d != %d + %d", kh->len, params.w, params.k) ;
+
+      // read in the node counts 
+      if (of->lineType != 'C' || oneLen(of) != kmerHashMax(kh))
+	die ("failed to find expected C line in khash file") ;
+      nodes = arrayCreate (kh->max+1, Node) ;
+      I64 i, *counts = oneIntList(of) ;
+      for (i = 1 ; i <= kmerHashMax(kh) ; ++i) totSync += (array(nodes,i,Node).n = counts[i-1]) ;
+
+      printf ("read %llu nodes from %s\n", kmerHashMax(kh), syncFileName) ;
+
       ofSync = oneFileOpenWriteFrom (syncFileName, of, true, 1) ;
       if (!ofSync) die ("failed to reopen syncmer file %s to write", syncFileName) ;
       oneFileClose (of) ; // close the old file
-      printf ("read %llu syncs from %s\n", kmerHashMax(syncHash)-1, syncFileName) ;
       timeUpdate (stdout) ;
     }
   else
-    { ofSync = oneFileOpenWriteNew (fnameTag (outPrefix,"1sync"), schema, "sync", true, 1) ;
-      if (!ofSync) die ("failed to open %s.1sync to write syncmers", outPrefix) ;
+    { kh = kmerHashCreate (0, params.w + params.k) ; 
+      nodes = arrayCreate (1<<20, Node) ;
+      arrayp(nodes, 0, Node)->n = 0 ; // because first sync is at 1 not 0
+      ofSync = oneFileOpenWriteNew (fnameTag (outPrefix,"1khash"), schema, "khash", true, 1) ;
+      if (!ofSync) die ("failed to open %s.1khash to write syncmers", outPrefix) ;
     }
   oneAddProvenance (ofSync, "syng", SYNC_VERSION, getCommandLine()) ;
   writeParams (ofSync) ;
     
   OneFile *ofSeq = oneFileOpenWriteNew (fnameTag (outPrefix,"1syncseq"), schema, "syncseq", true, 1) ;
-  if (!ofSeq) die ("failed to open %s.1syncseq to write", outPrefix) ;
+  if (!ofSeq) die ("failed to open %s.1nodeseq to write", outPrefix) ;
   oneAddProvenance (ofSeq, "syng", SYNC_VERSION, getCommandLine()) ;
   int i ;
   for (i = 0 ; i < argc ; ++i) oneAddReference (ofSeq, argv[i], i+1) ; // write the sources
@@ -176,15 +176,14 @@ int main (int argc, char *argv[])
   
   Array readSync = arrayCreate(64,I64) ;
   Array readDir = arrayCreate(64,char) ;
-  U64 nSeq = 0, totSeq = 0, totSync = 0 ;
-  U64 nSeq0 = 0, totSeq0 = 0, syncMax0 = arrayMax(syncs) ;
+  U64 nSeq0 = 0, totSeq0 = 0, totSync0 = totSync, syncMax0 = kmerHashMax(kh) ;
   
   if (nThread < 1) die ("number of threads %d must be at least 1", nThread) ;
   threads = new (nThread, pthread_t) ;
   threadInfo = new0 (nThread, ThreadInfo) ;
   for (i = 0 ; i < nThread ; ++i)
     { threadInfo[i].sh = sh ;
-      threadInfo[i].syncHash = syncHash ;
+      threadInfo[i].kh = kh ;
       threadInfo[i].seq = arrayCreate (101<<20, char) ; // 101 Mb
       threadInfo[i].seqLen = arrayCreate (20000, I64) ;
       threadInfo[i].pos = arrayCreate (1<<20, I64) ;
@@ -197,10 +196,10 @@ int main (int argc, char *argv[])
     { ++sourceFile ;
       if (!(sio = seqIOopenRead (*argv, dna2indexConv, false)))
 	die ("failed to open read sequence file %s", *argv) ;
-      printf ("sequence file %d %s", sourceFile, *argv) ; fflush (stdout) ;
+      printf ("sequence file %d %s ", sourceFile, *argv) ; fflush (stdout) ;
       bool isDone = false ;
       while (!isDone) 
-	{ for (i = 0 ; i < nThread ; ++i)  // read 100Mb DNA per thread and find syncs in parallel
+	{ for (i = 0 ; i < nThread ; ++i)  // read 100Mb DNA per thread and find nodes in parallel
 	    { ThreadInfo *ti = &threadInfo[i] ;
 	      arrayMax(ti->seq) = 0 ;
 	      arrayMax(ti->seqLen) = 0 ;
@@ -233,16 +232,11 @@ int main (int argc, char *argv[])
 		  for (iPos = 0 ; iPos < posLen ; ++iPos)
 		    { I64 pos = posList[iPos] ;
 		      I64 iSync = syncList[iPos] ;
-		      bool isRC ;
-		      if (iSync)
-			{ isRC = (iSync < 0) ;
-			  if (isRC) iSync = -iSync ;
-			}
-		      else // add it here
-			kmerHashAdd (syncHash, seq+pos, (U64*)&iSync, &isRC) ;
-		      array(readDir,iPos,char) = isRC ? '-' : '+' ;
-		      arrayp(syncs,iSync,Sync)->n++ ;
+		      if (!iSync) kmerHashAdd (kh, seq+pos, &iSync) ;
+		      if (iSync > 0) array(readDir,iPos,char) = '+' ;
+		      else { array(readDir,iPos,char) = '+' ; iSync = -iSync ; }
 		      array(readSync,iPos,I64) = iSync ;
+		      array(nodes,iSync,Node).n++ ;
 		    } // iPos
 		  if (posLen)
 		    { oneWriteLine (ofSeq, 'S', posLen, arrp(readSync,0,I64)) ;
@@ -260,31 +254,30 @@ int main (int argc, char *argv[])
 	    } // thread
 	} // isDone: end of file
       seqIOclose (sio) ;
-      printf (" had %llu sequences %llu bp, yielding %llu extra syncmers\n",
-	      nSeq-nSeq0, totSeq-totSeq0, arrayMax(syncs)-syncMax0) ;
+      printf ("had %llu sequences %llu bp, yielding %llu nodes including %llu extra syncmers\n",
+	      nSeq-nSeq0, totSeq-totSeq0, totSync-totSync0, kmerHashMax(kh)-syncMax0) ;
       timeUpdate (stdout) ;
-      nSeq0 = nSeq ; totSeq0 = totSeq ; syncMax0 = arrayMax(syncs) ;
+      nSeq0 = nSeq ; totSeq0 = totSeq ; totSync0 = totSync ; syncMax0 = kmerHashMax(kh) ;
       ++argv ;
     } // source file
 
-  if (sourceFile)
-    printf ("combined total %llu sequences, total length %llu"
-	    ", yielding %llu instances of %llu syncmers, average %.2f coverage\n", 
-	    nSeq, totSeq, totSync, arrayMax(syncs)-1, totSync / (double)(arrayMax(syncs)-1)) ; 
+  printf ("Total for this run %llu sequences, total length %llu\n", nSeq, totSeq) ;
+  printf ("Overall total %llu instances of %llu syncmers, average %.2f coverage\n", 
+	  totSync, kmerHashMax(kh), totSync / (double)kmerHashMax(kh)) ; 
   
   oneFileClose (ofSeq) ;
   arrayDestroy (readSync) ;
   arrayDestroy (readDir) ;
 
-  for (i = 1 ; i < arrayMax(syncs) ; ++i)
-    { Sync *s = arrp(syncs, i, Sync) ;
-      oneWriteLine (ofSync, 'S', syncmerLen, kmerHashSeq (syncHash, i)) ;
-      oneInt(ofSync,0) = s->n ; oneWriteLine (ofSync, 'K', 0, 0) ;
-    }
+  kmerHashWriteOneFile (kh, ofSync) ;
+  I64 *counts = new (kmerHashMax(kh), I64) ;
+  for (i = 1 ; i <= kmerHashMax(kh)  ; ++i) counts[i-1] = arrp(nodes,i,Node)->n ;
+  oneWriteLine (ofSync, 'C', kmerHashMax(kh), counts) ;
+  newFree (counts, kmerHashMax(kh), I64) ;
   oneFileClose (ofSync) ;
 
-  arrayDestroy (syncs) ;
-  kmerHashDestroy (syncHash) ;
+  arrayDestroy (nodes) ;
+  kmerHashDestroy (kh) ;
   seqhashDestroy (sh) ;
 	  
   fprintf (stderr, "total: ") ; timeTotal (stderr) ;
