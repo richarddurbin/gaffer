@@ -26,7 +26,7 @@
  * Exported functions:
  *              See Header file: array.h (includes lots of macros)
  * HISTORY:
- * Last edited: Sep 27 23:16 2024 (rd109)
+ * Last edited: Sep 29 18:36 2024 (rd109)
  * * Aug 31 22:04 2024 (rd109): added ArrayPool
  * * Feb 14 11:21 2011 (rd): modified in 2009/10 by RD for stand-alone use
  * Created: Thu Dec 12 15:43:25 1989 (mieg)
@@ -94,10 +94,9 @@ Array uArrayReCreate (Array a, U64 n, U64 size)
 
   if (a->dim < n || (a->dim - n)*size > (1 << 20) ) /* free if save > 1 MB */
     { totalAllocatedMemory -= a->dim * size ; 
-      free (a->base) ; totalAllocated -= a->dim * size ;
+      myfree (a->base, a->dim*size) ;
       a->dim = n ;
       totalAllocatedMemory += a->dim * size ;
-      /* base-mem isn't alloc'd on handle, it's free'd by finalisation */
       a->base = mycalloc (n, size) ;
     }
   else
@@ -121,8 +120,8 @@ void arrayDestroy (Array a)
     arr(reportArray, a->id, Array) = 0 ;
 #endif
   a->magic = 0 ;
-  free (a->base) ; totalAllocated -= a->dim * a->size ;
-  free (a) ; totalAllocated -= sizeof(struct ArrayStruct) ;
+  myfree (a->base, a->dim*a->size) ;
+  newFree (a, 1, struct ArrayStruct) ;
 }
 
 /**************/
@@ -144,15 +143,14 @@ Array arrayCopy (Array a)
 
 void arrayExtend (Array a, U64 n) 
 {
-  char *new ;
-
   if (!arrayExists (a))
     die ("arrayExtend called on bad array %lx", (long unsigned int) a) ;
 
   if (n < a->dim)
     return ;
 
-  totalAllocatedMemory -= a->dim * a->size ; totalAllocated -= a->dim * a->size ;
+  U64 oldDim = a->dim ;
+  totalAllocatedMemory -= a->dim * a->size ;
   if (a->dim*a->size < 1 << 23)	/* 8MB */
     a->dim *= 2 ;
   else
@@ -162,10 +160,7 @@ void arrayExtend (Array a, U64 n)
 
   totalAllocatedMemory += a->dim * a->size ;
 
-  new = mycalloc (a->dim, a->size) ;
-  memcpy (new,a->base,a->size*a->max) ;
-  free (a->base) ;
-  a->base = new ;
+  a->base = newResize (a->base, oldDim*a->size, a->dim*a->size, char) ;
 
   return;
 }
@@ -224,7 +219,8 @@ Array   arrayRead (FILE *f)
   if (fread (a, sizeof(struct ArrayStruct), 1, f) != 1) return 0 ;
   a->base = myalloc (a->size*a->dim) ;
   if (fread (a->base, a->size, a->dim, f) != a->dim)
-    { free (a->base) ; free (a) ; totalAllocated -= a->size*a->dim + sizeof(struct ArrayStruct) ;
+    { myfree (a->base, a->size*a->dim) ;
+      newFree (a, 1, struct ArrayStruct) ;
       return 0 ;
     }
 #ifdef ARRAY_REPORT
