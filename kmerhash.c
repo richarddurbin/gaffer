@@ -5,7 +5,7 @@
  * Description: fixed length DNA string hash set package (e.g. syncmers)
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 28 01:08 2024 (rd109)
+ * Last edited: Sep 29 22:58 2024 (rd109)
  * Created: Tue Sep  3 19:38:07 2024 (rd109)
  *-------------------------------------------------------------------
  */
@@ -24,7 +24,7 @@ KmerHash *kmerHashCreate (U64 initialSize, int len)
   kh->dim = 20 ;
   U64 size ;
   for (size = 1 << kh->dim ; size < initialSize ; ++kh->dim, size <<= 1) ;
-  kh->table = new0(size, U64) ;
+  kh->table = new0(size, I64) ;
   kh->mask = size - 1 ;
   kh->plen = (len+31) >> 5 ;
   kh->psize = size * 0.3 ;
@@ -35,10 +35,10 @@ KmerHash *kmerHashCreate (U64 initialSize, int len)
 
 void kmerHashDestroy (KmerHash *kh)
 {
-  free (kh->table) ;  totalAllocated -= ((U64)1 << kh->dim) * sizeof(U64) ;
-  free (kh->pack) ;   totalAllocated -= (kh->psize*kh->plen) * sizeof(U64) ;
-  free (kh->seqbuf) ; totalAllocated -= kh->len + 1 ;
-  free (kh) ;         totalAllocated -= sizeof (KmerHash) ;
+  newFree (kh->table, (U64)1 << kh->dim, I64) ;
+  newFree (kh->pack, kh->psize*kh->plen, U64) ;
+  newFree (kh->seqbuf, kh->len+1, char) ;
+  newFree (kh, 1, KmerHash) ;
 }
 
 static U8 comp[] = {   /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are maintained */
@@ -52,24 +52,23 @@ static U8 comp[] = {   /* sends N (indeed any non-CGT) to A, except 0,1,2,3 are 
    0,   0, 0,   0, 'a', 0, 0,   0, 0, 0, 0, 0, 0, 0,   0, 0
 } ;
 
-static inline void packDNA (char *dna, U64 *u, int len, bool *isRC)
+static inline bool packDNA (char *dna, U64 *u, int len) // return true if reverse complemented
 {
   int x = -1, y = len ;
   while (dna[++x] == comp[(int)dna[--y]]) ; // first find orientation
   if (dna[x] < comp[(int)dna[y]])
-    { if (isRC) *isRC = false ;
-      Compress_DNA (len, dna, u) ;
+    { Compress_DNA (len, dna, u) ;
+      return false ;
     }
   else
-    { if (isRC) *isRC = true ;
-      Compress_DNA_RC (len, dna, u) ;
+    { Compress_DNA_RC (len, dna, u) ;
+      return true ;
     }
 }
 
 static inline bool isMatch (U64 *u, U64 *v, int n)
 {
   while (n--) if (*u++ != *v++) return false ;
-  // { printf (" mismatch %d %llx != %llx", n, *--u, *--v) ; return false ; }
   return true ;
 }
 
@@ -85,73 +84,67 @@ static inline U64 hashDelta (U64 *u, int plen, int dim)
 
 #define packseq(kh,i) ((kh)->pack + (i)*(kh)->plen)
 
-static inline bool find (KmerHash *kh, U64 *u, U64 *index, bool *isRC, U64 *ploc)
+static inline bool find (KmerHash *kh, U64 *u, I64 *index, bool isRC, U64 *newLoc)
 {
   ++kh->finds ;
   U64 loc = *u & kh->mask ; // initially try the simplest thing
   U64 delta = 0 ;
-  U64 x = kh->table[loc] ;
-  //  printf ("find: loc %0llx x %llu", loc, x) ;
+  I64 x = kh->table[loc] ;
   while (x)
-    { if (isMatch (u, packseq(kh,x-1), kh->plen)) // found
-	{ if (index) *index = x-1 ; return true ; }
-	//	{ if (index) *index = x-1 ; putchar ('\n') ; return true ; }
+    { if (isMatch (u, packseq(kh,x), kh->plen)) // found
+	{ if (index) *index = isRC ? -x : x ; return true ; }
       if (!delta) delta = hashDelta (u, kh->plen, kh->dim) ;
       loc = (loc + delta) & kh->mask ;
       ++kh->deltas ;
       x = kh->table[loc] ;
-      //      printf (" loc %0llx x %llu", loc, x) ;
     }
-  *ploc = loc ;
-  //  putchar ('\n') ;
+  *newLoc = loc ;
   return false ; // not found
 }
 
-bool kmerHashFind (KmerHash *kh, char *dna, U64 *index, bool *isRC)
+bool kmerHashFind (KmerHash *kh, char *dna, I64 *index)
 {
-  U64 *u = packseq(kh,kh->max) ; // pack into the next free slot in pack[]
-  packDNA (dna, u, kh->len, isRC) ;
+  U64 *u = packseq(kh,kh->max+1) ; // pack into the next free slot in pack[]
+  bool isRC = packDNA (dna, u, kh->len) ;
+  U64 loc ;
+  return find (kh, u, index, isRC, &loc) ;
+}
+
+bool kmerHashFindThreadSafe (KmerHash *kh, char *dna, I64 *index, U64 *u)
+{
+  bool isRC = packDNA (dna, u, kh->len) ; // pack into user-provided space
   U64 loc ;
   return find (kh, u,  index, isRC, &loc) ;
 }
 
-bool kmerHashFindThreadSafe (KmerHash *kh, char *dna, U64 *index, bool *isRC, U64 *u)
+bool kmerHashAdd (KmerHash *kh, char *dna, I64 *index)
 {
-  packDNA (dna, u, kh->len, isRC) ; // pack into user-provided space
-  U64 loc ;
-  return find (kh, u,  index, isRC, &loc) ;
-}
-
-bool kmerHashAdd (KmerHash *kh, char *dna, U64 *index, bool *isRC)
-{
-  U64 *u = packseq(kh,kh->max) ; // pack into the next free slot in pack[]
-  packDNA (dna, u, kh->len, isRC) ;
-  U64 loc ;
-  //  printf ("add %llu\n", kh->max) ;
-  bool isFound = find (kh, u, index, isRC, &loc) ;
+  U64 *u = packseq(kh,kh->max+1) ; // pack into the next free slot in pack[]
+  bool isRC = packDNA (dna, u, kh->len) ;
+  U64 newLoc ;
+  bool isFound = find (kh, u, index, isRC, &newLoc) ;
   if (isFound) return false ;
+
+  kh->table[newLoc] = ++kh->max ; // add the new location
+  if (index) *index = isRC ? -kh->max : kh->max ;
   
-  if (index) *index = kh->max++ ;
-  kh->table[loc] = kh->max ; // NB this is *index + 1, as required
-  //  printf ("setting kh->table[%0llx] = %llu\n", loc, kh->max) ;
-  
-  if (kh->max == kh->psize)  // need to double
+  if (kh->max == kh->psize-1)  // need to double
     { ++kh->dim ;
-      U64 *newTable = new0 (1 << kh->dim, U64) ;
+      I64 *newTable = new0 (1 << kh->dim, I64) ;
       kh->mask = (1 << kh->dim) - 1 ;
       U64  i ;
-      for (i = 0 ; i < kh->max ; ++i) // remap all the packed sequences into newTable
-	{ loc = *packseq(kh,i) & kh->mask ;
+      for (i = 1 ; i <= kh->max ; ++i) // remap all the packed sequences into newTable
+	{ U64 loc = *packseq(kh,i) & kh->mask ;
 	  U64 delta = 0 ;
 	  while (newTable[loc])
 	    { if (!delta) delta = hashDelta(packseq(kh,i), kh->plen, kh->dim) ;
 	      loc = (loc + delta) & kh->mask ;
 	    }
-	  newTable[loc] = i+1 ;
+	  newTable[loc] = i ;
 	}
-      free (kh->table) ; totalAllocated -= ((U64)1 << (kh->dim-1)) * sizeof(U64) ;
+      newFree (kh->table, (U64)1 << (kh->dim-1), I64) ;
       kh->table = newTable ;
-      resize (kh->pack, kh->plen*kh->psize, 2*kh->plen*kh->psize, U64) ;
+      kh->pack = newResize (kh->pack, kh->plen*kh->psize, 2*kh->plen*kh->psize, U64) ;
       kh->psize *= 2 ;
       // printf ("doubled at max = %llu to %llu\n", kh->max, kh->psize) ;
     }
@@ -162,10 +155,76 @@ bool kmerHashAdd (KmerHash *kh, char *dna, U64 *index, bool *isRC)
 
 char* kmerHashSeq (KmerHash *kh, U64 i)
 {
-  if (i >= kh->max) die ("out of range in kmerHashSeq: %lld >= %lld", i, kh->max) ;
+  if (i > kh->max) die ("out of range in kmerHashSeq: %lld >= %lld", i, kh->max) ;
   Uncompress_DNA (kh->len, packseq(kh,i), kh->seqbuf) ;
   return kh->seqbuf ;
 }
+
+static char *schemaText =
+  "P 5 khash                 KMER HASH\n"
+  "D t 3 3 INT 3 INT 3 INT   max, len, dim for KmerHash table\n"
+  "O S 1 3 DNA               packed sequences aligned to 64-bit boundaries\n" 
+  "D L 1 8 INT_LIST          locations in the table\n"
+  ".\n" ;
+
+bool kmerHashWriteOneFile (KmerHash *kh, OneFile *of)
+{
+  if (!kh || !of || !of->isWrite || !oneFileCheckSchemaText (of, schemaText)) return false ;
+  // write the kmerHash parameters
+  oneInt(of,0) = kh->max ; oneInt(of,1) = kh->len ; oneInt(of,2) = kh->dim ;
+  oneWriteLine (of, 't', 0, 0) ;
+
+  // next write the DNA - may need to partition into chunks
+  I64  chunk = (I64)1 << 22 ;              // chunk size in 8-byte words, giving 128 Mb chunks
+  I64  total = kh->max * kh->plen ;        // number of 8-byte words in kh->pack to copy
+  U64 *dna = packseq(kh,1) ;
+  while (total > chunk)
+    { oneWriteLineDNA2bit (of, 'S', chunk << 5, (U8*)dna) ; dna += chunk ; total -= chunk ; }
+  oneWriteLineDNA2bit (of, 'S', total << 5, (U8*)dna) ;
+  
+  // next find the locations of all the kmers and write them
+  I64 i, size = 1 << kh->dim, *loc0 = new(kh->max,I64), *loc = loc0 ;
+  for (i = 0 ; i < size ; ++i) if (kh->table[i]) loc[kh->table[i]-1] = i ;
+  // similarly chunk the location buffer
+  total = kh->max ;
+  while (total > chunk) { oneWriteLine (of, 'L', chunk, loc) ; loc += chunk ; total -= chunk ; }
+  oneWriteLine (of, 'L', total, loc) ;
+
+  newFree (loc0, kh->max, I64) ;
+  return true ;
+}
+
+KmerHash *kmerHashReadOneFile (OneFile *of)
+{
+  if (!of || !oneFileCheckSchemaText (of, schemaText) || !oneGoto (of, 'S', 0))
+    die ("failed to read khash file") ;
+
+  while (of->lineType != 't' && oneReadLine (of)) ;
+  if (of->lineType != 't') die ("failed to find 't' line in khash file") ;
+  KmerHash *kh = kmerHashCreate (1 << oneInt(of,2), oneInt(of,1)) ;
+  if (!kh) die ("failed to create KmerHash") ;
+  kh->max = oneInt(of,0) ;
+
+  // read the DNA, maybe in chunks - assume they are at least multiple of 4bp, i.e. full bytes
+  U64 *dna = packseq(kh,1) ;
+  while (oneReadLine (of) && of->lineType == 'S')
+    { memcpy(dna, oneDNA2bit(of), oneLen(of)>>2) ;
+      dna += oneLen(of)>>5 ;
+    }
+  if (dna - packseq(kh,1) != kh->max * kh->plen) die ("wrong number of bp read in kmerhash") ;
+
+  I64 x = 0 ;
+  while (of->lineType == 'L')
+    { I64 j, *loc = oneIntList(of) ;
+      for (j = 0 ; j < oneLen(of) ; ++j) kh->table[loc[j]] = ++x ;
+      oneReadLine(of) ;
+    }
+  if (x != kh->max) die ("wrong number of locations read in kmerhash") ;
+
+  return kh ;
+}
+
+/******************************************************************************************/
 
 #ifdef TEST
 
@@ -228,7 +287,7 @@ int main (int argc, char *argv[])
   printf ("found target %d at %llu orientation %d\n", target, index, isRC) ;
   timeUpdate (stdout) ;
   kmerHashDestroy (kh) ;
-  free (data) ; totalAllocated -= count*len ;
+  newFree (data, count*len, char) ;
 }
 
 #endif
