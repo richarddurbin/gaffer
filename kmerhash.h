@@ -5,7 +5,7 @@
  * Description: fixed length DNA string hash set package (e.g. syncmers)
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 29 13:07 2024 (rd109)
+ * Last edited: Oct  2 15:55 2024 (rd109)
  * Created: Tue Sep  3 19:39:02 2024 (rd109)
  *-------------------------------------------------------------------
  */
@@ -40,6 +40,8 @@ bool      kmerHashAdd (KmerHash *kh, char *dna, I64 *index) ;  // true if addded
 bool      kmerHashFind (KmerHash *kh, char *dna, I64 *index) ; // true if found
 bool      kmerHashFindThreadSafe (KmerHash *kh, char *dna, I64 *index, U64 *buf) ;
 // buf must point to user memory of size kh->plen or larger
+bool      kmerHashFindPacked (KmerHash *kh, U64 *u, I64 *index) ; // true if found
+// finds already packed and correctly oriented kmers
 char*     kmerHashSeq (KmerHash *kh, U64 i) ; // retrieve the i'th sequence
 #define   kmerHashMax(kh)  ((kh)->max)        // count of stored kmers
 

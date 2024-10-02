@@ -5,7 +5,7 @@
  * Description: fixed length DNA string hash set package (e.g. syncmers)
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 29 22:58 2024 (rd109)
+ * Last edited: Oct  2 15:56 2024 (rd109)
  * Created: Tue Sep  3 19:38:07 2024 (rd109)
  *-------------------------------------------------------------------
  */
@@ -115,6 +115,12 @@ bool kmerHashFindThreadSafe (KmerHash *kh, char *dna, I64 *index, U64 *u)
   bool isRC = packDNA (dna, u, kh->len) ; // pack into user-provided space
   U64 loc ;
   return find (kh, u,  index, isRC, &loc) ;
+}
+
+bool kmerHashFindPacked (KmerHash *kh, U64 *u, I64 *index)
+{
+  U64 loc ;
+  return find (kh, u, index, false, &loc) ;
 }
 
 bool kmerHashAdd (KmerHash *kh, char *dna, I64 *index)
