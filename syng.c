@@ -5,7 +5,7 @@
  * Description: syncmer-based graph assembler
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 29 22:59 2024 (rd109)
+ * Last edited: Oct  3 09:47 2024 (rd109)
  * Created: Thu May 18 11:57:13 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -25,6 +25,12 @@
 #include "ONElib.h"
 
 #include "syng.h"
+
+typedef struct {
+  int n ;		// number of copies of the node
+} Node ;
+
+Array nodes ;           // of node
 
 typedef struct {
   Seqhash  *sh ;
@@ -234,7 +240,7 @@ int main (int argc, char *argv[])
 		      I64 iSync = syncList[iPos] ;
 		      if (!iSync) kmerHashAdd (kh, seq+pos, &iSync) ;
 		      if (iSync > 0) array(readDir,iPos,char) = '+' ;
-		      else { array(readDir,iPos,char) = '+' ; iSync = -iSync ; }
+		      else { array(readDir,iPos,char) = '-' ; iSync = -iSync ; }
 		      array(readSync,iPos,I64) = iSync ;
 		      array(nodes,iSync,Node).n++ ;
 		    } // iPos
@@ -243,7 +249,7 @@ int main (int argc, char *argv[])
 		      oneWriteLine (ofSeq, 'P', posLen, posList) ;
 		      oneWriteLine (ofSeq, 'D', posLen, arrp(readDir,0,char)) ;
 		      oneInt(ofSeq, 0) = sourceFile ;
-		      oneInt(ofSeq, 1) = nSeq+1 ;
+		      oneInt(ofSeq, 1) = nSeq-nSeq0+1 ;
 		      oneWriteLine (ofSeq, 'R', 0, 0) ;
 		    }
 		  nSeq++ ; totSync += arrayMax(readSync) ;
