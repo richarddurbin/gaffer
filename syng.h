@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Sep 29 18:34 2024 (rd109)
+ * Last edited: Oct  2 00:24 2024 (rd109)
  * Created: Mon May 29 08:19:18 2023 (rd109)
  *-------------------------------------------------------------------
  */
@@ -21,10 +21,6 @@ typedef struct {
 } Params ;
 
 typedef struct {
-  int n ;		// number of copies of the node
-} Node ;
-
-typedef struct {
   I64 sa, sb ;          // syncs, encode as -x-1 if -ve orientation, made canonical as below
   I64 n ;		// number of copies of the link
   I64 overlap ;
@@ -34,7 +30,7 @@ Params params ;
 static int PARAMS_K_DEFAULT = 16 ;
 static int PARAMS_W_DEFAULT = 1023 ;
 static int PARAMS_SEED_DEFAULT = 7 ;
-Array    nodes ;
+
 Array    links ;
 
 static char *syngSchemaText =
@@ -42,6 +38,8 @@ static char *syngSchemaText =
   ".\n"
   "P 3 seq                   SEQUENCE\n"
   "S 4 sync                  syncmer sequence\n"
+  "S 3 gfa                   sequence graph - requires N (node) objects\n"
+  ".\n"
   "D h 3 3 INT 3 INT 3 INT   k, w, seed for the seqhash: for syncs k = |smer|, w+k = |syncmer|\n"
   ".\n"
   "O S 1 3 DNA               sequence of the syncmer\n"
